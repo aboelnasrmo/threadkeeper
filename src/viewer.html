@@ -6,82 +6,186 @@
 <title>threadkeeper</title>
 <style>
   :root {
-    --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1b; --muted: #66665f; --line: #e4e3df;
-    --accent: #b5562a; --accent-soft: #f6e7dd; --ok: #2b7149; --warn: #8f5b00; --err: #b3261e;
-    --focus: #2f6fdb;
-    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color-scheme: light;
+    --bg: #f6f5f2; --panel: #ffffff; --raise: #fbfaf8; --ink: #1d1d1b; --muted: #66665f; --line: #e4e3df;
+    --accent: #b5562a; --accent-soft: #f6e7dd; --ok: #2b7149; --warn: #8f5b00; --err: #b3261e; --focus: #2f6fdb;
+    --t-session: #b5562a; --t-decision: #6b4fbb; --t-bugfix: #b3261e; --t-feature: #2b7149; --t-refactor: #2f6fdb;
+    --t-discovery: #0e7c86; --t-gotcha: #a35a00; --t-todo: #8a6d00; --t-note: #66665f; --t-brief: #b5562a;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --shadow: 0 1px 2px rgb(0 0 0 / .04), 0 2px 8px rgb(0 0 0 / .04);
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #141413; --panel: #1d1d1b; --raise: #232321; --ink: #ecebe6; --muted: #a3a29b; --line: #33332f;
+    --accent: #e5935f; --accent-soft: #3a2a20; --ok: #6cc28f; --warn: #e0b04f; --err: #f2867e; --focus: #7aa7ff;
+    --t-session: #e5935f; --t-decision: #b39dfa; --t-bugfix: #f2867e; --t-feature: #6cc28f; --t-refactor: #7aa7ff;
+    --t-discovery: #5fc9d1; --t-gotcha: #f0a54a; --t-todo: #e0c04f; --t-note: #a3a29b; --t-brief: #e5935f;
+    --shadow: none;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --muted: #a3a29b; --line: #34342f;
-            --accent: #e5935f; --accent-soft: #3a2a20; --ok: #6cc28f; --warn: #e0b04f; --err: #f2867e; --focus: #7aa7ff; }
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #141413; --panel: #1d1d1b; --raise: #232321; --ink: #ecebe6; --muted: #a3a29b; --line: #33332f;
+      --accent: #e5935f; --accent-soft: #3a2a20; --ok: #6cc28f; --warn: #e0b04f; --err: #f2867e; --focus: #7aa7ff;
+      --t-session: #e5935f; --t-decision: #b39dfa; --t-bugfix: #f2867e; --t-feature: #6cc28f; --t-refactor: #7aa7ff;
+      --t-discovery: #5fc9d1; --t-gotcha: #f0a54a; --t-todo: #e0c04f; --t-note: #a3a29b; --t-brief: #e5935f;
+      --shadow: none;
+    }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         display: grid; grid-template-rows: auto 1fr; }
   button { font: inherit; color: inherit; }
+  a { color: var(--accent); }
   :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--panel); }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  header { display: flex; align-items: center; gap: 16px; padding: 10px 20px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; flex-wrap: wrap; }
-  header h1 { font-size: 16px; margin: 0; }
-  header h1 span { color: var(--accent); }
+
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 18px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  .brand { font-size: 16px; font-weight: 700; margin: 0; background: none; border: 0; padding: 0; cursor: pointer; letter-spacing: -.01em; }
+  .brand::before { content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 3px; background: var(--accent); margin-right: 7px; vertical-align: 1px; }
+  .search { position: relative; flex: 0 1 380px; }
+  .search input[type=search] { width: 100%; padding-left: 30px; }
+  .search svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--muted); }
   .stats { display: flex; gap: 14px; color: var(--muted); font-size: 13px; }
   .stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
-  .live { margin-left: auto; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .hdr-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .live { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  .icon-btn { background: none; border: 1px solid var(--line); border-radius: 8px; width: 30px; height: 30px; display: grid; place-items: center; cursor: pointer; color: var(--muted); }
+  .icon-btn:hover { color: var(--ink); border-color: var(--muted); }
   input[type=search], input[type=text], textarea, select { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
-  input[type=search] { width: 300px; }
-  main { display: grid; grid-template-columns: 230px 400px 1fr; height: calc(100vh - 51px); }
-  .col { overflow-y: auto; border-right: 1px solid var(--line); }
-  .col h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 16px 6px; }
+
+  main { display: grid; grid-template-columns: 240px 420px 1fr; min-height: 0; }
+  .col { overflow-y: auto; border-right: 1px solid var(--line); min-height: 0; }
+  #projects { background: var(--panel); }
+  .col h2, .sec-h { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 16px 16px 6px; font-weight: 600; }
+  details.sec > summary { list-style: none; cursor: pointer; }
+  details.sec > summary::-webkit-details-marker { display: none; }
+  details.sec > summary::before { content: '▸ '; } details.sec[open] > summary::before { content: '▾ '; }
+  .pfilter { margin: 4px 12px 6px; width: calc(100% - 24px); font-size: 13px; }
   .item { display: block; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--line); padding: 10px 16px; cursor: pointer; }
   .item:hover { background: var(--accent-soft); }
   .item[aria-current="true"] { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+  #projects .item { border-bottom: 0; padding: 7px 16px; }
   .name { font-weight: 600; word-break: break-word; }
   .sub { color: var(--muted); font-size: 12px; }
+  .bar { height: 3px; border-radius: 2px; background: var(--line); margin-top: 4px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); opacity: .7; }
   .wk-h { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 10px 16px 2px; }
   .item.wk { padding: 6px 16px; }
   .clip { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .tabs { display: flex; gap: 4px; padding: 10px 12px 0; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 1; }
-  .tab { background: none; border: 0; padding: 8px 12px; border-bottom: 2px solid transparent; cursor: pointer; color: var(--muted); }
+  .tabs { display: flex; gap: 2px; padding: 8px 10px 0; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 1; }
+  .tab { background: none; border: 0; padding: 8px 10px; border-bottom: 2px solid transparent; cursor: pointer; color: var(--muted); }
   .tab[aria-selected="true"] { color: var(--ink); border-color: var(--accent); font-weight: 600; }
+  .tab .n { font-size: 11px; color: var(--muted); margin-left: 3px; font-weight: 400; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
   .chip { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 2px 10px; font-size: 12px; cursor: pointer; }
   .chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
-  .pill { display: inline-block; font-size: 11px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); margin-right: 4px; }
+  .chip[data-t]::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--c, var(--muted)); margin-right: 5px; vertical-align: 1px; }
+
+  .pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); margin-right: 4px; white-space: nowrap; }
+  .pill.type { color: var(--c, var(--muted)); border-color: color-mix(in srgb, var(--c, var(--muted)) 45%, transparent); background: color-mix(in srgb, var(--c, var(--muted)) 9%, transparent); }
   .pill.ok { color: var(--ok); border-color: currentColor; } .pill.warn { color: var(--warn); border-color: currentColor; }
   .pill.err { color: var(--err); border-color: currentColor; } .pill.pin { color: var(--accent); border-color: currentColor; }
-  .detail { padding: 18px 24px; overflow-y: auto; }
-  .detail h3 { margin: 18px 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-  .mem { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
-  .mem.session { border-color: var(--accent); }
-  .mem .t { font-weight: 600; margin-bottom: 4px; }
-  .files { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 6px; word-break: break-all; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+
+  .detail { padding: 20px 26px 40px; overflow-y: auto; min-height: 0; }
+  .detail h3 { margin: 22px 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .back { display: none; }
+  .mem { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; box-shadow: var(--shadow); }
+  .mem.session { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+  .mem .t { font-weight: 600; margin-bottom: 6px; font-size: 15px; }
+  .body { white-space: pre-wrap; word-break: break-word; }
+  .body code { font-family: var(--mono); font-size: 12.5px; background: var(--raise); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+  .files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .file { font-family: var(--mono); font-size: 11.5px; color: var(--muted); background: var(--raise); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; cursor: copy; word-break: break-all; }
+  .file:hover { color: var(--ink); }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 12px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
   .btn { font-size: 12px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; }
+  .btn:hover { border-color: var(--muted); }
   .btn.primary { border-color: var(--accent); color: var(--accent); }
   .btn.danger:hover { border-color: var(--err); color: var(--err); }
-  .ev { font-family: var(--mono); font-size: 12px; padding: 4px 0; border-bottom: 1px dashed var(--line); white-space: pre-wrap; word-break: break-word; }
+  .btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+  .ev { font-family: var(--mono); font-size: 12px; padding: 4px 0; border-bottom: 1px dashed var(--line); white-space: pre-wrap; word-break: break-word; display: grid; grid-template-columns: 52px 1fr; gap: 8px; }
+  .ev .ts { color: var(--muted); font-size: 11px; }
   .ev .k { color: var(--accent); margin-right: 6px; }
-  .ev.prompt { font-family: inherit; font-size: 13px; padding: 10px 0 6px; border-bottom: 0; }
+  .ev.prompt { font-family: inherit; font-size: 13px; padding: 12px 0 6px; border-bottom: 0; }
   .ev.prompt .k { color: var(--ok); }
   .ev.fail { color: var(--err); }
+  details.run > summary { cursor: pointer; font-size: 12px; color: var(--muted); padding: 4px 0 4px 60px; }
   .empty { color: var(--muted); padding: 32px 20px; }
   .errors { font-family: var(--mono); font-size: 11px; color: var(--err); padding: 0 16px 16px; white-space: pre-wrap; word-break: break-all; }
   .edit label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
   .edit input[type=text], .edit textarea { width: 100%; }
-  .edit textarea { min-height: 140px; resize: vertical; }
+  .edit textarea { min-height: 180px; resize: vertical; }
   .around a { color: inherit; }
   .more { width: 100%; padding: 12px; background: none; border: 0; color: var(--accent); cursor: pointer; }
-  mark { background: var(--accent-soft); color: inherit; }
-  @media (max-width: 960px) { main { grid-template-columns: 1fr; height: auto; } .col { border-right: 0; max-height: 60vh; } input[type=search] { width: 100%; } .stats { display: none; } }
+  mark { background: color-mix(in srgb, var(--accent) 28%, transparent); color: inherit; border-radius: 2px; }
+
+  /* Home dashboard */
+  .home h1 { font-size: 20px; margin: 0 0 2px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin: 16px 0 6px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); text-align: left; }
+  button.tile { cursor: pointer; } button.tile:hover { border-color: var(--accent); }
+  .tile .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .tile .l { font-size: 12px; color: var(--muted); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: var(--shadow); margin-bottom: 12px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .chart { width: 100%; height: 110px; display: block; }
+  .chart rect.b { fill: var(--accent); opacity: .75; } .chart rect.b:hover { opacity: 1; }
+  .chart rect.s { fill: var(--muted); opacity: .35; }
+  .chart text { fill: var(--muted); font-size: 10px; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .stack { display: flex; height: 10px; border-radius: 6px; overflow: hidden; margin: 6px 0 10px; background: var(--line); }
+  .stack span { display: block; height: 100%; background: var(--c); }
+  .tlist { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; font-size: 13px; }
+  .tlist .sw { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--c); margin-right: 6px; }
+  .link-row { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 6px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .link-row:last-child { border-bottom: 0; }
+  .link-row:hover .name { color: var(--accent); }
+  .brief { white-space: pre-wrap; font-size: 13px; max-height: 280px; overflow: auto; }
+
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 10px; font-size: 13px; opacity: 0; transition: .2s; pointer-events: none; z-index: 10; }
+  .toast.on { opacity: 1; transform: translateX(-50%); }
+  dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink); padding: 18px 22px; max-width: 420px; box-shadow: 0 10px 40px rgb(0 0 0 / .25); }
+  dialog::backdrop { background: rgb(0 0 0 / .35); }
+  dialog table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  dialog td { padding: 4px 0; } dialog td:first-child { width: 110px; }
+
+  @media (max-width: 1100px) { main { grid-template-columns: 210px 360px 1fr; } .stats { display: none; } }
+  @media (max-width: 820px) {
+    body { display: block; }
+    main { display: block; }
+    .col { border-right: 0; max-height: none; }
+    #projects { display: none; }
+    body.show-detail section[aria-label="List"] { display: none; }
+    body:not(.show-detail) #detail { display: none; }
+    .back { display: inline-flex; margin-bottom: 12px; }
+    .search { flex: 1 1 100%; order: 3; }
+    .detail { padding: 16px; }
+    .grid2 { grid-template-columns: 1fr; }
+    .mobile-proj { display: block !important; }
+  }
+  .mobile-proj { display: none; margin: 10px 12px 0; width: calc(100% - 24px); }
 </style>
 </head>
 <body>
 <header>
-  <h1>my-<span>mem</span></h1>
+  <button class="brand" id="home" title="Home: overview of your memory">threadkeeper</button>
+  <div class="search">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <label class="sr" for="q">Search notes</label>
+    <input type="search" id="q" placeholder="Search notes…  ( / )" autocomplete="off">
+  </div>
   <div class="stats" id="stats" aria-live="polite"></div>
-  <label class="sr" for="q">Search notes</label>
-  <input type="search" id="q" placeholder="Search notes…  ( / )" autocomplete="off">
-  <div class="live" role="status"><span class="dot" aria-hidden="true"></span><span id="tick">live</span></div>
+  <div class="hdr-right">
+    <div class="live" role="status"><span class="dot" aria-hidden="true"></span><span id="tick">live</span></div>
+    <button class="icon-btn" id="theme" title="Theme: auto" aria-label="Switch theme"></button>
+    <button class="icon-btn" id="help" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
+  </div>
 </header>
 <main>
   <nav class="col" id="projects" aria-label="Projects"></nav>
@@ -92,27 +196,63 @@
       <button class="tab" role="tab" data-tab="todos">Todos</button>
       <button class="tab" role="tab" data-tab="week">This week</button>
     </div>
+    <select class="mobile-proj" id="mproj" aria-label="Project"></select>
     <div id="list"></div>
   </section>
-  <section class="detail" id="detail" aria-label="Details" aria-live="polite">
-    <div class="empty">Pick a note or a session. Press <kbd>/</kbd> to search.</div>
-  </section>
+  <section class="detail" id="detail" aria-label="Details" aria-live="polite"></section>
 </main>
+<div class="toast" id="toast" role="status"></div>
+<dialog id="keys" aria-label="Keyboard shortcuts">
+  <h3 style="margin:0 0 10px">Keyboard shortcuts</h3>
+  <table>
+    <tr><td><kbd>/</kbd></td><td>Search</td></tr>
+    <tr><td><kbd>j</kbd> <kbd>k</kbd></td><td>Next / previous item in the list</td></tr>
+    <tr><td><kbd>1</kbd>–<kbd>4</kbd></td><td>Notes, Sessions, Todos, This week</td></tr>
+    <tr><td><kbd>p</kbd></td><td>Pin or unpin the open note</td></tr>
+    <tr><td><kbd>e</kbd></td><td>Edit the open note</td></tr>
+    <tr><td><kbd>d</kbd></td><td>Mark the open todo done</td></tr>
+    <tr><td><kbd>h</kbd> or <kbd>Esc</kbd></td><td>Back to the overview</td></tr>
+    <tr><td><kbd>t</kbd></td><td>Switch theme</td></tr>
+  </table>
+  <form method="dialog" style="margin-top:14px;text-align:right"><button class="btn">Close</button></form>
+</dialog>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const ago = (iso) => { if (!iso) return ''; const s = (Date.now() - new Date(iso)) / 1000;
-  return s < 60 ? 'just now' : s < 3600 ? `${Math.floor(s/60)}m ago` : s < 86400 ? `${Math.floor(s/3600)}h ago` : new Date(iso).toLocaleDateString(); };
-const projName = (p) => p.startsWith('claude-mem:') ? p.slice(11) : p.split('/').filter(Boolean).slice(-2).join('/');
-const get = (u) => fetch(u).then((r) => r.json());
+  return s < 60 ? 'just now' : s < 3600 ? `${Math.floor(s/60)}m ago` : s < 86400 ? `${Math.floor(s/3600)}h ago` : s < 7 * 86400 ? `${Math.floor(s/86400)}d ago` : new Date(iso).toLocaleDateString(); };
+const projName = (p) => p.startsWith('claude-mem:') ? p.slice(11) : p.split(/[\\/]/).filter(Boolean).slice(-2).join('/');
+const get = (u) => fetch(u).then((r) => { if (!r.ok && r.status >= 500) throw new Error(r.status); return r.json(); });
 const post = (u, body) => fetch(u, { method: 'POST', headers: { 'x-threadkeeper': '1', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }).then((r) => r.json());
 const qs = (o) => '?' + Object.entries(o).filter(([, v]) => v !== null && v !== undefined && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+const fmtK = (n) => n >= 10000 ? Math.round(n / 1000) + 'k' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+const tc = (t) => `--c:var(--t-${esc(t)})`;
+// Only touch the DOM when the markup actually changed, so the 4-second refresh never steals focus, scroll or selection.
+const setHTML = (el, html) => { if (el._html === html) return false; el._html = html; el.innerHTML = html; return true; };
 
-const saved = (() => { try { return JSON.parse(localStorage.getItem('threadkeeper-view') || '{}'); } catch { return {}; } })();
-const state = { project: saved.project ?? null, tab: saved.tab || 'notes', type: null, query: '', done: false, old: false,
-  sel: null /* {kind:'note'|'session', id} */, limit: 50, editing: false };
-const persist = () => { try { localStorage.setItem('threadkeeper-view', JSON.stringify({ project: state.project, tab: state.tab })); } catch {} };
-let overview = { types: [] };
+const store = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+const saved = store.get('threadkeeper-view', {});
+const state = { project: saved.project ?? null, tab: saved.tab || 'notes', type: null, query: '', done: false, old: false, stale: false,
+  sel: null /* {kind:'note'|'session', id} */, phoneHome: false, limit: 50, editing: false, evFilter: 'all', pfilter: '' };
+const persist = () => store.set('threadkeeper-view', { project: state.project, tab: state.tab });
+let overview = { types: [], projects: [], counts: {} };
+let current = null; // the note or session open in the detail panel
+
+/* Theme: auto → light → dark */
+const THEMES = ['auto', 'light', 'dark'];
+const ICONS = { auto: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg>',
+  light: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  dark: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>' };
+function applyTheme(t) {
+  if (t === 'auto') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  $('theme').innerHTML = ICONS[t]; $('theme').title = `Theme: ${t} (t)`;
+}
+let theme = store.get('threadkeeper-theme', 'auto'); applyTheme(theme);
+const cycleTheme = () => { theme = THEMES[(THEMES.indexOf(theme) + 1) % 3]; store.set('threadkeeper-theme', theme); applyTheme(theme); toast(`Theme: ${theme}`); };
+
+let toastTimer;
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 1800); }
+async function copy(text, what = 'Copied') { try { await navigator.clipboard.writeText(text); toast(what); } catch { toast('Copy not allowed here'); } }
 
 function sessionStatus(s) {
   if (!s.ended_at) return '<span class="pill warn">in progress</span>';
@@ -120,87 +260,97 @@ function sessionStatus(s) {
   if (s.summarized === -1) return s.summarize_attempts >= 3 ? '<span class="pill err">summary failed</span>' : '<span class="pill">too small, skipped</span>';
   return '<span class="pill warn">summarizing…</span>';
 }
-const typePill = (m) => `<span class="pill${m.type === 'brief' ? ' pin' : ''}">${esc(m.type)}${m.status === 'done' ? ' ✓' : ''}</span>${m.pinned ? '<span class="pill pin">pinned</span>' : ''}${m.superseded_at ? '<span class="pill warn">outdated</span>' : ''}`;
+const typePill = (m) => `<span class="pill type" style="${tc(m.type)}">${esc(m.type)}${m.status === 'done' ? ' ✓' : ''}</span>` +
+  (m.pinned ? '<span class="pill pin">pinned</span>' : '') + (m.superseded_at ? '<span class="pill warn">outdated</span>' : '') +
+  (m.stale_at && !m.superseded_at ? '<span class="pill warn" title="Its files changed a lot since this was written">check</span>' : '');
 function highlight(text) {
   const words = state.query.toLowerCase().match(/[\p{L}\p{N}_]+/gu) || [];
   let out = esc(text);
   for (const w of words.slice(0, 8)) out = out.replace(new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\p{L}\\p{N}_]*)`, 'giu'), '<mark>$1</mark>');
   return out;
 }
+// Light formatting for note bodies: `code` spans, nothing else (bodies are plain text).
+const fmtBody = (s) => esc(s).replace(/`([^`\n]{1,200})`/g, '<code>$1</code>');
+const filesHtml = (files) => files.length ? `<div class="files">${files.map((f) => `<span class="file" data-copy="${esc(f)}" title="Click to copy the path">${esc(f)}</span>`).join('')}</div>` : '';
 
+/* ---------- Sidebar ---------- */
 async function loadOverview() {
   overview = await get('/api/overview');
   const c = overview.counts;
-  $('stats').innerHTML = `<span><b>${c.memories}</b> notes</span><span><b>${c.sessions}</b> sessions</span><span><b>${c.todos}</b> open todos</span><span><b>${c.pinned}</b> pinned</span>` +
-    (c.pending ? `<span><b>${c.pending}</b> summarizing</span>` : '') +
-    (overview.usage ? `<span title="last 7 days: context threadkeeper added to Claude, and summary-model calls">~<b>${(overview.usage.injected.tokens / 1000).toFixed(1)}k</b> tokens added · <b>${overview.usage.model.calls}</b> model calls${overview.usage.saved.tokens ? ` · <b>${(overview.usage.saved.tokens / 1000).toFixed(1)}k</b> saved` : ''} (7d)</span>` : '');
+  setHTML($('stats'), `<span><b>${fmtK(c.memories)}</b> notes</span><span><b>${c.sessions}</b> sessions</span><span><b>${c.todos}</b> open todos</span>` +
+    (c.pending ? `<span><b>${c.pending}</b> summarizing</span>` : ''));
+  const max = Math.max(1, ...overview.projects.map((p) => p.memories));
+  const pf = state.pfilter.toLowerCase();
   const proj = (p) => `<button class="item" data-p="${esc(p.project)}" aria-current="${state.project === p.project}" title="${esc(p.project)}">
       <div class="name">${esc(projName(p.project))}</div>
-      <div class="sub">${p.memories} notes${p.sessions ? ` · ${p.sessions} sessions` : ''} · ${ago(p.last)}${p.project.startsWith('claude-mem:') ? '<br>imported, attaches when you open this folder' : ''}</div></button>`;
+      <div class="sub">${p.memories} notes${p.sessions ? ` · ${p.sessions} sessions` : ''} · ${ago(p.last)}</div>
+      <div class="bar"><i style="width:${Math.max(3, Math.round(100 * p.memories / max))}%"></i></div></button>`;
+  const match = (p) => !pf || p.project.toLowerCase().includes(pf);
   const live = overview.projects.filter((p) => !p.project.startsWith('claude-mem:'));
   const imported = overview.projects.filter((p) => p.project.startsWith('claude-mem:'));
-  $('projects').innerHTML = '<h2>Projects</h2>' +
+  const openImported = store.get('threadkeeper-imported-open', false) || !!pf;
+  const html = '<h2>Projects</h2>' +
+    (overview.projects.length > 8 ? `<input type="search" class="pfilter" id="pfilter" placeholder="Filter projects" value="${esc(state.pfilter)}" aria-label="Filter projects">` : '') +
     `<button class="item" data-p="" aria-current="${state.project === null}"><div class="name">All projects</div><div class="sub">${c.memories} notes</div></button>` +
-    live.map(proj).join('') + (imported.length ? '<h2>Imported from claude-mem</h2>' + imported.map(proj).join('') : '') +
-    (overview.health.length ? `<h2>Needs attention</h2><div style="padding:0 16px 16px">${overview.health.map((h) => `<div class="sub" style="color:var(--${h.level === 'warn' ? 'err' : 'warn'});margin-bottom:6px">${esc(h.text)}</div>`).join('')}</div>` : '') +
-    (overview.errors.length ? `<h2>Recent errors</h2><div class="errors">${esc(overview.errors.join('\n'))}</div>` : '') +
+    live.filter(match).map(proj).join('') +
+    (imported.length ? `<details class="sec" id="impsec" ${openImported ? 'open' : ''}><summary class="sec-h">Imported from claude-mem (${imported.length})</summary>
+       <div class="sub" style="padding:0 16px 4px">Attaches to a project when you open that folder.</div>${imported.filter(match).map(proj).join('')}</details>` : '') +
+    (overview.health.length ? `<h2>Needs attention</h2><div style="padding:0 16px 8px">${overview.health.map((h) => `<div class="sub" style="color:var(--${h.level === 'warn' ? 'err' : 'warn'});margin-bottom:6px">${esc(h.text)}</div>`).join('')}</div>` : '') +
+    (overview.errors.length ? `<details class="sec"><summary class="sec-h">Recent errors (${overview.errors.length})</summary><div class="errors">${esc(overview.errors.join('\n'))}</div></details>` : '') +
     `<h2>Data</h2><div class="sub" style="padding:0 16px 16px;word-break:break-all">${esc(overview.home)}<br>summaries: ${esc(overview.config.model)} · min ${overview.config.minToolCalls} tool calls or 1 edit</div>`;
-  document.querySelectorAll('#projects .item').forEach((el) => el.onclick = () => {
-    state.project = el.dataset.p || null; state.type = null; state.sel = null; state.limit = 50; persist(); refresh();
-  });
+  if (document.activeElement?.id !== 'pfilter') setHTML($('projects'), html);
+  setHTML($('mproj'), `<option value="">All projects</option>` + overview.projects.map((p) => `<option value="${esc(p.project)}" ${state.project === p.project ? 'selected' : ''}>${esc(projName(p.project))}</option>`).join(''));
 }
 
+/* ---------- Middle list ---------- */
 async function loadList() {
   document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === state.tab)));
   const list = $('list');
+  const cur = (kind, id) => state.sel?.kind === kind && state.sel.id === id;
   if (state.tab === 'sessions') {
     const rows = await get('/api/sessions' + qs({ project: state.project }));
-    list.innerHTML = rows.length ? rows.map((s) => `
-      <button class="item" data-s="${esc(s.id)}" aria-current="${state.sel?.kind === 'session' && state.sel.id === s.id}">
+    setHTML(list, rows.length ? rows.map((s) => `
+      <button class="item" data-s="${esc(s.id)}" aria-current="${cur('session', s.id)}">
         <div>${sessionStatus(s)}<span class="sub">${ago(s.last_activity)}</span></div>
         <div class="clip">${esc(s.summary || s.first_prompt || '(no prompt captured)')}</div>
         <div class="sub">${state.project ? '' : esc(projName(s.project)) + ' · '}${s.prompts} prompts · ${s.tool_calls} tool calls · ${s.edits} edits · ${s.memories} notes</div>
-      </button>`).join('') : '<div class="empty">No sessions yet here. Use Claude Code and they show up live.</div>';
-    list.querySelectorAll('[data-s]').forEach((el) => el.onclick = () => { state.sel = { kind: 'session', id: el.dataset.s }; state.editing = false; refresh(); });
+      </button>`).join('') : '<div class="empty">No sessions yet here. Use Claude Code and they show up live.</div>');
     return;
   }
   if (state.tab === 'week') {
     const w = await get('/api/week');
     const ps = w.projects.filter((p) => !state.project || p.project === state.project);
     const sec = (title, items, f) => items.length ? `<h3 class="wk-h">${title}</h3>` + items.map(f).join('') : '';
-    const note = (x) => `<button class="item wk" data-n="${x.id}"><span class="sub">${esc(x.day || '')}</span> ${esc(x.title)}</button>`;
-    list.innerHTML = ps.length ? ps.map((p) => `
-      <div class="wk-p"><div class="name" style="padding:12px 16px 2px;font-weight:600">${esc(p.name)}</div>
+    const note = (x) => `<button class="item wk" data-n="${x.id}" aria-current="${cur('note', x.id)}"><span class="sub">${esc(x.day || '')}</span> ${esc(x.title)}</button>`;
+    setHTML(list, ps.length ? ps.map((p) => `
+      <div class="wk-p"><div class="name" style="padding:14px 16px 2px">${esc(p.name)}</div>
       <div class="sub" style="padding:0 16px 6px">${p.sessions} session(s) · ${p.edits} edits · ${p.notes} new notes in ${w.days} days</div>
-      ${sec('Worked on', p.worked_on, (x) => `<button class="item wk" data-n="${x.id}"><span class="sub">${esc(x.day)}</span> ${esc(x.text)}</button>`)}
+      ${sec('Worked on', p.worked_on, (x) => `<button class="item wk" data-n="${x.id}" aria-current="${cur('note', x.id)}"><span class="sub">${esc(x.day)}</span> ${esc(x.text)}</button>`)}
       ${sec('Done', p.shipped, note)}${sec('Decided', p.decisions, note)}${sec('Learned the hard way', p.gotchas, note)}
       ${sec('Todos closed', p.todos_done, note)}${sec('Still open', p.todos_open, note)}</div>`).join('')
-      : '<div class="empty">Nothing recorded in the last 7 days.</div>';
-    list.querySelectorAll('[data-n]').forEach((el) => el.onclick = () => { state.sel = { kind: 'note', id: Number(el.dataset.n) }; state.editing = false; refresh(); });
+      : '<div class="empty">Nothing recorded in the last 7 days.</div>');
     return;
   }
   const isTodos = state.tab === 'todos';
-  const r = await get('/api/notes' + qs({ project: state.project, type: isTodos ? 'todo' : state.type, q: state.query, done: state.done ? 1 : '', old: state.old ? 1 : '', limit: state.limit }));
+  const r = await get('/api/notes' + qs({ project: state.project, type: isTodos ? 'todo' : state.type, q: state.query, done: state.done ? 1 : '', old: state.old ? 1 : '', stale: !isTodos && state.stale ? 1 : '', limit: state.limit }));
   const chips = isTodos
     ? `<div class="chips"><button class="chip" id="showdone" aria-pressed="${state.done}">Show finished</button></div>`
     : `<div class="chips" role="group" aria-label="Filter by type"><button class="chip" data-t="" aria-pressed="${!state.type}">all ${Object.values(r.typeCounts).reduce((a, b) => a + b, 0)}</button>` +
-      overview.types.filter((t) => r.typeCounts[t]).map((t) => `<button class="chip" data-t="${t}" aria-pressed="${state.type === t}">${t} ${r.typeCounts[t]}</button>`).join('') +
-      (overview.counts.outdated ? `<button class="chip" id="showold" aria-pressed="${state.old}">show outdated</button>` : '') + '</div>';
-  list.innerHTML = chips + (state.query ? `<div class="sub" style="padding:8px 16px">${r.total} matches for “${esc(state.query)}”</div>` : '') +
+      overview.types.filter((t) => r.typeCounts[t]).map((t) => `<button class="chip" data-t="${t}" style="${tc(t)}" aria-pressed="${state.type === t}">${t} ${r.typeCounts[t]}</button>`).join('') +
+      `<button class="chip" id="showstale" aria-pressed="${state.stale}" title="Notes whose files changed a lot since they were written">needs a check</button>` +
+      (overview.outdated ? `<button class="chip" id="showold" aria-pressed="${state.old}">show outdated</button>` : '') + '</div>';
+  setHTML(list, chips + (state.query ? `<div class="sub" style="padding:8px 16px">${r.total} matches for “${esc(state.query)}”</div>` : '') +
     (r.items.length ? r.items.map((m) => `
-      <button class="item" data-n="${m.id}" aria-current="${state.sel?.kind === 'note' && state.sel.id === m.id}">
+      <button class="item" data-n="${m.id}" aria-current="${cur('note', m.id)}">
         <div>${typePill(m)}<span class="sub">${esc(m.created_at.slice(0, 10))}${state.project ? '' : ' · ' + esc(projName(m.project))}</span></div>
         <div class="name">${highlight(m.title)}</div>
         <div class="sub clip">${highlight(m.body)}</div>
-      </button>`).join('') : `<div class="empty">${isTodos ? 'Nothing open. Unfinished work from your sessions shows up here and closes itself when a later session finishes it.' : 'No notes match.'}</div>`) +
-    (r.total > r.items.length ? `<button class="more" id="more">Show more (${r.total - r.items.length} left)</button>` : '');
-  list.querySelectorAll('[data-n]').forEach((el) => el.onclick = () => { state.sel = { kind: 'note', id: Number(el.dataset.n) }; state.editing = false; refresh(); });
-  list.querySelectorAll('[data-t]').forEach((el) => el.onclick = () => { state.type = el.dataset.t || null; state.limit = 50; refresh(); });
-  if ($('showdone')) $('showdone').onclick = () => { state.done = !state.done; refresh(); };
-  if ($('showold')) $('showold').onclick = () => { state.old = !state.old; refresh(); };
-  if ($('more')) $('more').onclick = () => { state.limit += 100; refresh(); };
+      </button>`).join('') : `<div class="empty">${isTodos ? 'Nothing open. Unfinished work from your sessions shows up here and closes itself when a later session finishes it.'
+        : state.query ? 'No notes match. Try fewer or different words.' : 'No notes here yet.'}</div>`) +
+    (r.total > r.items.length ? `<button class="more" id="more">Show more (${r.total - r.items.length} left)</button>` : ''));
 }
 
+/* ---------- Detail panel ---------- */
 function noteView(n, before, after) {
   if (state.editing) return `
     <form class="edit" id="editform">
@@ -209,88 +359,244 @@ function noteView(n, before, after) {
       <label for="e-body">Note</label><textarea id="e-body" maxlength="8000" required>${esc(n.body)}</textarea>
       <div class="row"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" id="e-cancel">Cancel</button></div>
     </form>`;
-  const link = (m) => `<a href="#" data-goto="${m.id}">#${m.id}</a> ${esc(m.created_at.slice(0, 10))} [${esc(m.type)}${m.status === 'done' ? ' ✓' : ''}] ${esc(m.title)}`;
+  const link = (m) => `<a href="#" data-goto="${m.id}">#${m.id}</a> ${esc(m.created_at.slice(0, 10))} <span class="pill type" style="${tc(m.type)}">${esc(m.type)}${m.status === 'done' ? ' ✓' : ''}</span>${esc(m.title)}`;
   return `
-    <div class="sub" title="${esc(n.project)}">${esc(projName(n.project))} · #${n.id} · ${new Date(n.created_at).toLocaleString()}${n.updated_at ? ' · edited' : ''} · ${esc(n.source)}</div>
+    <button class="btn back" data-act="back">← Back</button>
+    <div class="meta"><span title="${esc(n.project)}">${esc(projName(n.project))}</span><span>#${n.id}</span><span title="${esc(n.created_at)}">${new Date(n.created_at).toLocaleString()}</span>${n.updated_at ? '<span>edited</span>' : ''}<span>${esc(n.source)}</span></div>
     <div class="mem ${n.type === 'session' ? 'session' : ''}" style="margin-top:10px">
       <div class="t">${typePill(n)}${esc(n.title)}</div>
-      <div style="white-space:pre-wrap">${esc(n.body)}</div>
-      ${n.files.length ? `<div class="files">${n.files.map(esc).join(' · ')}</div>` : ''}
+      <div class="body">${fmtBody(n.body)}</div>
+      ${filesHtml(n.files)}
     </div>
+    ${n.stale_at && !n.superseded_at ? `<div class="sub" style="color:var(--warn)">The files this note is about changed a lot after it was written (${esc(n.stale_at.slice(0, 10))}). Check it is still true, then edit it or mark it outdated.</div>` : ''}
+    ${n.superseded_at ? `<div class="sub" style="color:var(--warn)">Outdated since ${esc(n.superseded_at.slice(0, 10))}${n.superseded_by ? `: replaced by <a href="#" data-goto="${n.superseded_by}">#${n.superseded_by}</a>` : ''}. Claude no longer sees it.</div>` : ''}
     <div class="row">
-      <button class="btn primary" id="a-pin" aria-pressed="${!!n.pinned}">${n.pinned ? 'Unpin' : 'Pin: always load at session start'}</button>
-      ${n.type === 'todo' ? `<button class="btn" id="a-done">${n.status === 'done' ? 'Reopen' : 'Mark done'}</button>` : ''}
+      <button class="btn primary" id="a-pin" aria-pressed="${!!n.pinned}" title="p">${n.pinned ? 'Unpin' : 'Pin: always load at session start'}</button>
+      ${n.type === 'todo' ? `<button class="btn" id="a-done" title="d">${n.status === 'done' ? 'Reopen' : 'Mark done'}</button>` : ''}
       ${n.type !== 'brief' ? `<button class="btn" id="a-old">${n.superseded_at ? 'Not outdated' : 'Mark outdated'}</button>` : ''}
-      <button class="btn" id="a-edit">Edit</button>
-      <button class="btn danger" id="a-del">Forget</button>
+      <button class="btn" id="a-edit" title="e">Edit</button>
+      <button class="btn" id="a-copy" title="Copy the note as text">Copy</button>
       ${n.session_id ? `<button class="btn" id="a-sess">Open session</button>` : ''}
+      <button class="btn danger" id="a-del">Forget</button>
     </div>
-    ${before.length || after.length ? `<h3>Around this note</h3><div class="around sub">${[...before.map(link), `<b>▶ ${esc(n.title)}</b>`, ...after.map(link)].join('<br>')}</div>` : ''}`;
+    ${before.length || after.length ? `<h3>Around this note</h3><div class="around sub" style="line-height:1.9">${[...before.map(link), `<b>▶ ${esc(n.title)}</b>`, ...after.map(link)].join('<br>')}</div>` : ''}`;
+}
+
+function eventsHtml(events) {
+  const f = state.evFilter;
+  const shown = events.filter((e) => f === 'all' || e.kind === 'prompt' || (f === 'fail' && (e.detail || '').startsWith('FAILED')));
+  const time = (e) => e.ts ? new Date(e.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  const one = (e) => e.kind === 'prompt'
+    ? `<div class="ev prompt"><span class="ts">${time(e)}</span><div><span class="k">you ›</span>${esc(e.detail)}</div></div>`
+    : `<div class="ev ${(e.detail || '').startsWith('FAILED') ? 'fail' : ''}"><span class="ts">${time(e)}</span><div><span class="k">${esc(e.tool)}</span>${esc(e.detail)}</div></div>`;
+  // Long runs of tool calls fold away so the prompts stay easy to follow.
+  const out = []; let run = [];
+  const flush = () => {
+    if (run.length > 6) out.push(`<details class="run"><summary>${run.length} tool calls (${[...new Set(run.map((e) => e.tool))].slice(0, 5).join(', ')})</summary>${run.map(one).join('')}</details>`);
+    else out.push(...run.map(one));
+    run = [];
+  };
+  for (const e of shown) { if (e.kind === 'prompt' || f !== 'all') { flush(); out.push(one(e)); } else run.push(e); }
+  flush();
+  return out.join('') || '<div class="sub">Nothing to show with this filter.</div>';
+}
+
+function chartSvg(activity) {
+  const W = 600, H = 100, pad = 10, n = activity.length, bw = (W - 8) / n;
+  const max = Math.max(1, ...activity.map((a) => a.notes));
+  const bars = activity.map((a, i) => {
+    const h = Math.round((H - pad - 6) * a.notes / max);
+    const sh = a.sessions ? 3 : 0;
+    return `<g><title>${a.day}: ${a.notes} notes, ${a.sessions} sessions</title>` +
+      `<rect class="b" x="${(i * bw + 4).toFixed(1)}" y="${H - pad - h}" width="${(bw - 3).toFixed(1)}" height="${Math.max(h, a.notes ? 2 : 0)}" rx="2"/>` +
+      (sh ? `<rect class="s" x="${(i * bw + 4).toFixed(1)}" y="${H - pad + 4}" width="${(bw - 3).toFixed(1)}" height="${sh}" rx="1"/>` : '') + '</g>';
+  }).join('');
+  const d = (i) => new Date(activity[i].day + 'T12:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Notes written per day, last 30 days">${bars}</svg>
+    <div class="sub" style="display:flex;justify-content:space-between;font-size:11px"><span>${d(0)}</span><span>today</span></div>`;
+}
+
+async function homeView() {
+  const h = await get('/api/home' + qs({ project: state.project }));
+  const c = overview.counts, u = overview.usage;
+  const p = state.project ? overview.projects.find((x) => x.project === state.project) : null;
+  const total = h.types.reduce((a, b) => a + b.n, 0) || 1;
+  const notes30 = h.activity.reduce((a, b) => a + b.notes, 0), sess30 = h.activity.reduce((a, b) => a + b.sessions, 0);
+  const row = (m) => `<button class="link-row" data-n="${m.id}"><div>${typePill(m)}<span class="sub">${ago(m.created_at)}</span></div><div class="name" style="font-weight:500">${esc(m.title)}</div></button>`;
+  return `<div class="home">
+    <button class="btn back" data-act="back">← List</button>
+    <h1>${state.project ? esc(projName(state.project)) : 'Your memory'}</h1>
+    <div class="sub">${state.project ? esc(state.project) : `${overview.projects.length} projects · stored at ${esc(overview.home)}`}</div>
+    <div class="tiles">
+      <button class="tile" data-go="notes"><div class="v">${fmtK(p ? p.memories : c.memories)}</div><div class="l">notes</div></button>
+      <button class="tile" data-go="sessions"><div class="v">${p ? p.sessions : c.sessions}</div><div class="l">sessions</div></button>
+      <button class="tile" data-go="todos"><div class="v">${state.project ? h.todos.length + (h.todos.length >= 6 ? '+' : '') : c.todos}</div><div class="l">open todos</div></button>
+      ${state.project ? '' : `<div class="tile"><div class="v">${c.pinned}</div><div class="l">pinned (always loaded)</div></div>`}
+      ${h.stale ? `<button class="tile" data-go="stale"><div class="v" style="color:var(--warn)">${h.stale}</div><div class="l">notes need a check</div></button>` : ''}
+      ${u && !state.project ? `<div class="tile" title="Context threadkeeper added to Claude in the last 7 days"><div class="v">~${fmtK(u.injected.tokens)}</div><div class="l">tokens added (7d)</div></div>` : ''}
+      ${u && u.saved.tokens && !state.project ? `<div class="tile" title="Tokens saved by skipping re-reads of unchanged files, last 7 days"><div class="v" style="color:var(--ok)">~${fmtK(u.saved.tokens)}</div><div class="l">tokens saved (7d)</div></div>` : ''}
+    </div>
+    <div class="card"><div class="sec-h" style="margin:0 0 6px">Last 30 days · ${notes30} notes from ${sess30} sessions</div>${chartSvg(h.activity)}
+      <div class="legend"><span><i style="background:var(--accent)"></i>notes written</span><span><i style="background:var(--muted);opacity:.5"></i>days with sessions</span></div></div>
+    ${h.brief ? `<div class="card"><div class="sec-h" style="margin:0 0 6px">Project brief <span style="text-transform:none;letter-spacing:0">· what Claude sees first · ${ago(h.brief.created_at)}</span></div><div class="brief">${fmtBody(h.brief.body)}</div></div>` : ''}
+    <div class="grid2">
+      <div class="card"><div class="sec-h" style="margin:0 0 6px">Latest notes</div>${h.recent.length ? h.recent.map(row).join('') : '<div class="sub">None yet.</div>'}</div>
+      <div class="card"><div class="sec-h" style="margin:0 0 6px">What's in memory</div>
+        <div class="stack">${h.types.map((t) => `<span style="${tc(t.type)};width:${(100 * t.n / total).toFixed(2)}%" title="${esc(t.type)}: ${t.n}"></span>`).join('')}</div>
+        <div class="tlist">${h.types.map((t) => `<span><span class="sw" style="${tc(t.type)}"></span>${esc(t.type)}</span><span class="sub">${t.n}</span>`).join('')}</div>
+        ${h.todos.length ? `<div class="sec-h" style="margin:14px 0 4px">Open todos</div>${h.todos.map((t) => `<button class="link-row" data-n="${t.id}"><span class="name" style="font-weight:500">${esc(t.title)}</span> <span class="sub">${ago(t.created_at)}</span></button>`).join('')}` : ''}
+      </div>
+    </div>
+    <div class="sub" style="margin-top:8px">Press <kbd>?</kbd> for keyboard shortcuts.</div>
+  </div>`;
 }
 
 async function loadDetail() {
   const box = $('detail');
-  if (!state.sel) { box.innerHTML = '<div class="empty">Pick a note or a session. Press <kbd>/</kbd> to search.</div>'; return; }
+  document.body.classList.toggle('show-detail', !!state.sel || state.phoneHome);
+  if (!state.sel) { current = null; setHTML(box, await homeView()); return; }
   if (state.sel.kind === 'note') {
     if (state.editing && box.querySelector('#editform')) return; // don't clobber typing on refresh
     const r = await get('/api/notes/' + state.sel.id);
-    if (r.error) { state.sel = null; box.innerHTML = '<div class="empty">That note is gone.</div>'; return; }
-    const n = r.note;
-    box.innerHTML = noteView(n, r.before, r.after);
-    const upd = async (body) => { await post('/api/notes/' + n.id, body); refresh(); };
-    if (state.editing) {
-      $('e-title').focus();
-      $('editform').onsubmit = async (e) => { e.preventDefault(); state.editing = false; await upd({ title: $('e-title').value, type: $('e-type').value, body: $('e-body').value }); };
-      $('e-cancel').onclick = () => { state.editing = false; loadDetail(); };
-      return;
-    }
-    $('a-pin').onclick = () => upd({ pinned: !n.pinned });
-    if ($('a-done')) $('a-done').onclick = () => upd({ status: n.status === 'done' ? 'open' : 'done' });
-    $('a-edit').onclick = () => { state.editing = true; loadDetail(); };
-    if ($('a-old')) $('a-old').onclick = () => upd({ outdated: !n.superseded_at });
-    $('a-del').onclick = async () => { if (confirm('Forget this note for good?')) { await post(`/api/memories/${n.id}/delete`); state.sel = null; refresh(); } };
-    if ($('a-sess')) $('a-sess').onclick = () => { state.tab = 'sessions'; state.sel = { kind: 'session', id: n.session_id }; refresh(); };
-    box.querySelectorAll('[data-goto]').forEach((a) => a.onclick = (e) => { e.preventDefault(); state.sel = { kind: 'note', id: Number(a.dataset.goto) }; refresh(); });
+    if (r.error) { state.sel = null; current = null; setHTML(box, '<div class="empty">That note is gone.</div>'); return; }
+    current = { kind: 'note', n: r.note };
+    if (setHTML(box, noteView(r.note, r.before, r.after)) && state.editing) $('e-title').focus();
     return;
   }
   const d = await get('/api/sessions/' + encodeURIComponent(state.sel.id));
-  if (d.error) { box.innerHTML = '<div class="empty">Session not found.</div>'; return; }
-  const s = d.session;
-  box.innerHTML = `
-    <div class="sub" title="${esc(s.project)}">${esc(projName(s.project))}</div>
-    <div class="sub">started ${new Date(s.started_at).toLocaleString()} · ${s.ended_at ? 'ended ' + new Date(s.ended_at).toLocaleString() : 'still open'}</div>
+  if (d.error) { current = null; setHTML(box, '<div class="empty">Session not found.</div>'); return; }
+  const s = d.session; current = { kind: 'session', s };
+  const fails = d.events.filter((e) => (e.detail || '').startsWith('FAILED')).length;
+  const mins = s.ended_at ? Math.round((new Date(s.ended_at) - new Date(s.started_at)) / 60000) : null;
+  setHTML(box, `
+    <button class="btn back" data-act="back">← Back</button>
+    <div class="meta"><span title="${esc(s.project)}">${esc(projName(s.project))}</span><span>started ${new Date(s.started_at).toLocaleString()}</span><span>${s.ended_at ? (mins < 120 ? mins + ' min' : (mins / 60).toFixed(1) + ' h') : 'still open'}</span></div>
+    <div class="tiles" style="grid-template-columns:repeat(auto-fill,minmax(110px,1fr))">
+      <div class="tile"><div class="v">${s.prompts}</div><div class="l">prompts</div></div>
+      <div class="tile"><div class="v">${s.tool_calls}</div><div class="l">tool calls</div></div>
+      <div class="tile"><div class="v">${s.edits}</div><div class="l">edits</div></div>
+      <div class="tile"><div class="v" ${fails ? 'style="color:var(--err)"' : ''}>${fails}</div><div class="l">failures</div></div>
+    </div>
     <div class="row">${sessionStatus(s)} <button class="btn primary" id="resum">${s.summarized === 1 ? 'Summarize again' : 'Summarize now'}</button></div>
     <h3>Remembered (${d.memories.length})</h3>
-    ${d.memories.length ? d.memories.map((m) => `<button class="item mem ${m.type === 'session' ? 'session' : ''}" data-n="${m.id}" style="border-radius:10px">
-        <div class="t">${typePill(m)}${esc(m.title)} <span class="sub">#${m.id}</span></div><div>${esc(m.body)}</div>
-        ${m.files.length ? `<div class="files">${m.files.map(esc).join(' · ')}</div>` : ''}</button>`).join('')
+    ${d.memories.length ? d.memories.map((m) => `<button class="item mem ${m.type === 'session' ? 'session' : ''}" data-n="${m.id}">
+        <div class="t">${typePill(m)}${esc(m.title)} <span class="sub">#${m.id}</span></div><div class="body">${fmtBody(m.body)}</div>
+        ${filesHtml(m.files)}</button>`).join('')
       : '<div class="sub">Nothing yet. Notes are written when a session that did real work ends, and before the context is compacted.</div>'}
     <h3>Captured activity (${d.events.length})</h3>
-    ${d.events.map((e) => e.kind === 'prompt'
-      ? `<div class="ev prompt"><span class="k">you ›</span>${esc(e.detail)}</div>`
-      : `<div class="ev ${e.detail.startsWith('FAILED') ? 'fail' : ''}"><span class="k">${esc(e.tool)}</span>${esc(e.detail)}</div>`).join('')}`;
-  $('resum').onclick = async () => {
-    if (s.summarized === 1 && !confirm('Replace this session\'s notes with a fresh summary? Pinned notes are kept.')) return;
-    await post(`/api/sessions/${encodeURIComponent(s.id)}/summarize`); refresh();
-  };
-  box.querySelectorAll('[data-n]').forEach((el) => el.onclick = () => { state.tab = 'notes'; state.sel = { kind: 'note', id: Number(el.dataset.n) }; refresh(); });
+    <div class="row" style="margin:0 0 8px" role="group" aria-label="Filter activity">
+      ${[['all', 'Everything'], ['prompts', 'Your prompts'], ['fail', `Failures (${fails})`]].map(([k, l]) => `<button class="btn" data-evf="${k}" aria-pressed="${state.evFilter === k}">${l}</button>`).join('')}
+    </div>
+    ${eventsHtml(d.events)}`);
 }
 
-let busy = false;
+let busy = false, again = false;
 async function refresh() {
-  if (busy) return; busy = true;
+  if (busy) { again = true; return; } busy = true;
   try {
     await loadOverview(); await loadList(); await loadDetail();
     $('tick').textContent = 'live · ' + new Date().toLocaleTimeString();
     document.querySelector('.dot').style.background = '';
   } catch { $('tick').textContent = 'viewer stopped'; document.querySelector('.dot').style.background = 'var(--err)'; }
-  finally { busy = false; }
+  finally { busy = false; if (again) { again = false; refresh(); } }
 }
-document.querySelectorAll('.tab').forEach((t) => t.onclick = () => { state.tab = t.dataset.tab; state.type = null; state.limit = 50; persist(); refresh(); });
+
+/* ---------- Actions (one delegated handler per area, so re-rendering never loses them) ---------- */
+const openNote = (id) => { state.phoneHome = false; state.sel = { kind: 'note', id: Number(id) }; state.editing = false; refresh(); };
+// On a phone only one panel fits: Back returns to the list, the logo opens the overview.
+const goHome = (phone = true) => { state.sel = null; state.editing = false; state.phoneHome = phone; refresh(); };
+async function upd(body, msg) { if (current?.kind !== 'note') return; await post('/api/notes/' + current.n.id, body); if (msg) toast(msg); refresh(); }
+const act = {
+  pin: () => upd({ pinned: !current.n.pinned }, current.n.pinned ? 'Unpinned' : 'Pinned: loads at every session start'),
+  done: () => current.n.type === 'todo' && upd({ status: current.n.status === 'done' ? 'open' : 'done' }, current.n.status === 'done' ? 'Reopened' : 'Marked done'),
+  edit: () => { if (current?.kind === 'note') { state.editing = true; $('detail')._html = null; loadDetail(); } },
+};
+
+$('projects').addEventListener('click', (e) => {
+  const el = e.target.closest('[data-p]'); if (!el) return;
+  state.project = el.dataset.p || null; state.type = null; state.sel = null; state.limit = 50; persist(); refresh();
+});
+$('projects').addEventListener('input', (e) => {
+  if (e.target.id !== 'pfilter') return;
+  state.pfilter = e.target.value; const pf = state.pfilter.toLowerCase();
+  $('projects').querySelectorAll('[data-p]').forEach((el) => { if (el.dataset.p) el.hidden = !!pf && !el.dataset.p.toLowerCase().includes(pf); });
+  if (pf && $('impsec')) $('impsec').open = true;
+});
+$('projects').addEventListener('toggle', (e) => { if (e.target.id === 'impsec') store.set('threadkeeper-imported-open', e.target.open); }, true);
+$('mproj').onchange = (e) => { state.project = e.target.value || null; state.sel = null; persist(); refresh(); };
+
+$('list').addEventListener('click', (e) => {
+  const t = e.target.closest('button'); if (!t) return;
+  if (t.dataset.n) return openNote(t.dataset.n);
+  if (t.dataset.s) { state.phoneHome = false; state.sel = { kind: 'session', id: t.dataset.s }; state.editing = false; state.evFilter = 'all'; return refresh(); }
+  if (t.dataset.t !== undefined) { state.type = t.dataset.t || null; state.limit = 50; return refresh(); }
+  if (t.id === 'showdone') { state.done = !state.done; return refresh(); }
+  if (t.id === 'showold') { state.old = !state.old; return refresh(); }
+  if (t.id === 'showstale') { state.stale = !state.stale; return refresh(); }
+  if (t.id === 'more') { state.limit += 100; return refresh(); }
+});
+
+$('detail').addEventListener('click', async (e) => {
+  const copyEl = e.target.closest('[data-copy]'); if (copyEl) { e.stopPropagation(); return copy(copyEl.dataset.copy, 'Path copied'); }
+  const go = e.target.closest('[data-goto]'); if (go) { e.preventDefault(); return openNote(go.dataset.goto); }
+  const t = e.target.closest('button'); if (!t) return;
+  if (t.dataset.act === 'back') return goHome(false);
+  if (t.dataset.n) { state.tab = 'notes'; persist(); return openNote(t.dataset.n); }
+  if (t.dataset.go) {
+    if (t.dataset.go === 'stale') { state.tab = 'notes'; state.stale = true; } else state.tab = t.dataset.go;
+    state.type = null; persist(); return refresh();
+  }
+  if (t.dataset.evf) { state.evFilter = t.dataset.evf; return loadDetail(); }
+  const n = current?.n;
+  switch (t.id) {
+    case 'a-pin': return act.pin();
+    case 'a-done': return act.done();
+    case 'a-edit': return act.edit();
+    case 'a-old': return upd({ outdated: !n.superseded_at }, n.superseded_at ? 'Claude will see it again' : 'Marked outdated: Claude stops seeing it');
+    case 'a-copy': return copy(`#${n.id} [${n.type}] ${n.title}\n\n${n.body}${n.files.length ? '\n\nFiles: ' + n.files.join(', ') : ''}`, 'Note copied');
+    case 'a-sess': state.tab = 'sessions'; state.sel = { kind: 'session', id: n.session_id }; persist(); return refresh();
+    case 'a-del': if (confirm('Forget this note for good?')) { await post(`/api/memories/${n.id}/delete`); toast('Forgotten'); state.sel = null; refresh(); } return;
+    case 'e-cancel': state.editing = false; $('detail')._html = null; return loadDetail();
+    case 'resum': {
+      const s = current.s;
+      if (s.summarized === 1 && !confirm('Replace this session\'s notes with a fresh summary? Pinned notes are kept.')) return;
+      await post(`/api/sessions/${encodeURIComponent(s.id)}/summarize`); toast('Summarizing…'); return refresh();
+    }
+  }
+});
+$('detail').addEventListener('submit', async (e) => {
+  if (e.target.id !== 'editform') return;
+  e.preventDefault(); state.editing = false;
+  await upd({ title: $('e-title').value, type: $('e-type').value, body: $('e-body').value }, 'Saved');
+});
+
+document.querySelectorAll('.tab').forEach((t) => t.onclick = () => { state.phoneHome = false; state.tab = t.dataset.tab; state.type = null; state.limit = 50; persist(); refresh(); });
+$('home').onclick = () => goHome(true);
+$('theme').onclick = cycleTheme;
+$('help').onclick = () => $('keys').showModal();
 let timer; $('q').oninput = (e) => { clearTimeout(timer); timer = setTimeout(() => { state.query = e.target.value.trim(); if (state.query) state.tab = 'notes'; state.limit = 50; refresh(); }, 250); };
+
+function moveSel(step) {
+  const items = [...$('list').querySelectorAll('[data-n],[data-s]')]; if (!items.length) return;
+  let i = items.findIndex((el) => el.getAttribute('aria-current') === 'true');
+  i = i < 0 ? (step > 0 ? 0 : items.length - 1) : Math.min(items.length - 1, Math.max(0, i + step));
+  const el = items[i]; el.scrollIntoView({ block: 'nearest' }); el.click();
+}
 document.addEventListener('keydown', (e) => {
-  if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) { e.preventDefault(); $('q').focus(); }
-  if (e.key === 'Escape' && document.activeElement === $('q')) { $('q').value = ''; state.query = ''; refresh(); }
+  const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
+  if (e.key === 'Escape' && document.activeElement === $('q')) { $('q').value = ''; state.query = ''; $('q').blur(); return refresh(); }
+  if (typing || e.metaKey || e.ctrlKey || e.altKey || $('keys').open) return;
+  const k = e.key;
+  if (k === '/') { e.preventDefault(); $('q').focus(); }
+  else if (k === 'j' || k === 'ArrowDown') { e.preventDefault(); moveSel(1); }
+  else if (k === 'k' || k === 'ArrowUp') { e.preventDefault(); moveSel(-1); }
+  else if ('1234'.includes(k) && k.length === 1) { state.tab = ['notes', 'sessions', 'todos', 'week'][Number(k) - 1]; state.type = null; persist(); refresh(); }
+  else if (k === 'p' && current?.kind === 'note') act.pin();
+  else if (k === 'e' && current?.kind === 'note') { e.preventDefault(); act.edit(); }
+  else if (k === 'd' && current?.kind === 'note') act.done();
+  else if (k === 'h' || k === 'Escape') goHome();
+  else if (k === 't') cycleTheme();
+  else if (k === '?') $('keys').showModal();
 });
 refresh();
 setInterval(() => { if (!document.hidden && !state.editing && document.activeElement !== $('q')) refresh(); }, 4000);

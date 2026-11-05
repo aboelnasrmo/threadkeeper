@@ -32,13 +32,14 @@ function readJson(req) {
   });
 }
 
-function notesQuery(d, { project, type, q, includeDone, includeOld, pinned, offset = 0, limit = 50 }) {
+function notesQuery(d, { project, type, q, includeDone, includeOld, pinned, stale, offset = 0, limit = 50 }) {
   // Each condition carries its own args so the type filter can be dropped for the chip counts.
   const fq = q ? ftsQuery(q) : '';
   const conds = [];
   if (fq) conds.push(['memories_fts MATCH ?', [fq]]);
   if (project) conds.push(['m.project = ?', [project]]);
   if (pinned) conds.push(['m.pinned = 1', []]);
+  if (stale) conds.push(['m.stale_at IS NOT NULL', []]);
   if (!includeDone) conds.push(["(m.status IS NULL OR m.status != 'done')", []]);
   if (!includeOld) conds.push(['m.superseded_at IS NULL', []]);
   const typeCond = type ? ['m.type = ?', [type]] : null;
@@ -72,6 +73,32 @@ async function api(url, method, req) {
   }
 
   if (method === 'GET' && p === '/api/week') return [200, (await import('./week.mjs')).weekReport(Number(q('days')) || 7)];
+
+  // Dashboard numbers for the home panel (only fetched while it is showing).
+  if (method === 'GET' && p === '/api/home') {
+    const project = q('project') || null;
+    const days = 30;
+    const since = new Date(Date.now() - (days - 1) * 86400000).toISOString().slice(0, 10);
+    const pw = project ? 'AND project = ?' : '';
+    const pa = project ? [project] : [];
+    const perDay = (sql) => Object.fromEntries(d.prepare(sql).all(since, ...pa).map((r) => [r.day, r.n]));
+    const notes = perDay(`SELECT substr(created_at, 1, 10) day, count(*) n FROM memories WHERE created_at >= ? AND type != 'brief' ${pw} GROUP BY day`);
+    const sessions = perDay(`SELECT substr(started_at, 1, 10) day, count(*) n FROM sessions WHERE started_at >= ? AND prompts + tool_calls > 0 ${pw} GROUP BY day`);
+    const activity = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const day = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      activity.push({ day, notes: notes[day] || 0, sessions: sessions[day] || 0 });
+    }
+    const where = project ? 'WHERE project = ?' : '';
+    return [200, {
+      activity,
+      types: d.prepare(`SELECT type, count(*) n FROM memories ${where} ${where ? 'AND' : 'WHERE'} superseded_at IS NULL GROUP BY type ORDER BY n DESC`).all(...pa),
+      brief: project ? d.prepare("SELECT id, body, created_at FROM memories WHERE project = ? AND type = 'brief' ORDER BY id DESC LIMIT 1").get(project) || null : null,
+      recent: withFiles(d, d.prepare(`SELECT * FROM memories ${where} ${where ? 'AND' : 'WHERE'} type NOT IN ('brief', 'session') AND superseded_at IS NULL ORDER BY created_at DESC, id DESC LIMIT 6`).all(...pa)),
+      todos: d.prepare(`SELECT id, title, created_at FROM memories ${where} ${where ? 'AND' : 'WHERE'} type = 'todo' AND status = 'open' AND superseded_at IS NULL ORDER BY id DESC LIMIT 6`).all(...pa),
+      stale: d.prepare(`SELECT count(*) n FROM memories ${where} ${where ? 'AND' : 'WHERE'} stale_at IS NOT NULL AND superseded_at IS NULL`).get(...pa).n,
+    }];
+  }
 
   if (method === 'GET' && p === '/api/overview') {
     const n = (sql) => d.prepare(sql).get().n;
@@ -130,6 +157,7 @@ async function api(url, method, req) {
       includeDone: q('done') === '1',
       includeOld: q('old') === '1',
       pinned: q('pinned') === '1',
+      stale: q('stale') === '1',
       offset: Math.max(0, Number(q('offset')) || 0),
       limit: Math.min(200, Math.max(1, Number(q('limit')) || 50)),
     })];

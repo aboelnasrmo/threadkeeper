@@ -1,6 +1,6 @@
 # threadkeeper
 
-**Version 0.12.2** · [Changelog](CHANGELOG.md)
+**Version 0.13.0** · [Changelog](CHANGELOG.md)
 
 Personal, local-only memory for Claude Code. Built so Claude never loses its place: not after a long session, not after the context is compacted, not next week. No account, no hosted service, no extra dependencies. Inspired by [claude-mem](https://github.com/thedotmack/claude-mem); written from scratch to be small, local-only and token-lean.
 
@@ -83,7 +83,13 @@ Repeated notes are merged instead of piling up: a new note with the same title a
 
 ## Viewer
 
-Starts by itself with Claude Code at http://localhost:37777. Browse every project (including imported claude-mem history), filter notes by type, search with highlighting (press `/`), pin notes so they always load at session start, edit or forget notes, close todos, and replay any session's captured activity.
+Starts by itself with Claude Code at http://localhost:37777 and only answers on your own machine.
+
+- **Overview** (click the logo): notes, sessions, todos and tokens at a glance, a 30-day activity chart, what kinds of notes you have, the latest notes, and the project brief Claude sees first.
+- **Browse and search** every project (including imported claude-mem history). Notes are colour-coded by type, and search highlights matches (press `/`).
+- **Keep memory accurate**: pin notes so they always load, edit, mark outdated or forget them, close todos, and see notes whose files changed a lot ("needs a check").
+- **Replay sessions**: every prompt and tool call, with long runs folded and filters for your prompts or failures.
+- Light, dark or automatic theme; keyboard shortcuts (press `?`); works on a phone-sized window.
 
 Needs Node 22.13 or newer (uses the built-in `node:sqlite`). Run `node ~/threadkeeper/src/cli.mjs doctor` to check everything.
 
@@ -208,6 +214,12 @@ Problems are logged to `~/.threadkeeper/errors.log`; hooks never block Claude.
 `npm test` runs the whole pipeline (capture, redaction, summaries, todos, compaction, MCP tools, import, viewer API, a browser test when Playwright is installed, and fuzz tests) against a fake `claude`.
 
 `node test/bench.mjs 200000` measures speed at scale. On 200,000 notes (168 MB): session start 28 ms, file recall 28 ms, per-prompt recall 134 ms, project search 112 ms.
+
+## Credits and license
+
+Inspired by [claude-mem](https://github.com/thedotmack/claude-mem) by Alex Newman, which showed how useful memory across Claude Code sessions can be. This is an independent project written from scratch; it shares no code with claude-mem and is not affiliated with or endorsed by it. It can import your existing claude-mem history.
+
+MIT licensed, see [LICENSE](LICENSE).
 
 ## Contributing
 

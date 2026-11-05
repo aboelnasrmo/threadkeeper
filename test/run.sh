@@ -160,12 +160,15 @@ echo "10. viewer: API, todos, CSRF and host guards"
 THREADKEEPER_PORT=37791 node --no-warnings "$ROOT/src/viewer.mjs" >/dev/null 2>&1 & VPID=$!
 trap 'kill $VPID 2>/dev/null || true' EXIT
 for _ in $(seq 1 30); do curl -sf localhost:37791/ >/dev/null 2>&1 && break; sleep 0.1; done
-curl -sf localhost:37791/ | grep -q "my-<span>mem" || fail "viewer page"
+curl -sf localhost:37791/ | grep -q ">threadkeeper</button>" || fail "viewer page"
 [[ "$(curl -s localhost:37791/api/overview)" == *'"todos":'* ]] || fail "viewer overview"
 [[ "$(curl -s localhost:37791/api/sessions/sess-1)" == *'"files":["src/auth/validate.ts"]'* ]] || fail "viewer session files"
 [[ "$(curl -s -XPOST localhost:37791/api/memories/1/delete)" == *forbidden* ]] || fail "viewer csrf guard"
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.test' localhost:37791/api/overview)" == 403 ]] || fail "viewer host guard"
 [[ "$(curl -s localhost:37791/api/notes?type=bugfix)" == *'"typeCounts"'* ]] || fail "notes api"
+HOMEJ="$(curl -s localhost:37791/api/home)"
+[[ "$HOMEJ" == *'"activity":'* && "$HOMEJ" == *'"types":'* && "$(node -p 'JSON.parse(process.argv[1]).activity.length' "$HOMEJ")" == 30 ]] || fail "home api: $HOMEJ"
+[[ "$(curl -s 'localhost:37791/api/notes?stale=1')" == *'"total":0'* ]] || fail "stale filter"
 UPD="$(curl -s -XPOST -H 'x-threadkeeper: 1' -H 'content-type: application/json' -d '{"pinned":true,"body":"edited <b>body</b>"}' localhost:37791/api/notes/1)"
 [[ "$UPD" == *'"pinned":1'* && "$UPD" == *'edited <b>body</b>'* ]] || fail "note update: $UPD"
 [[ "$(curl -s -XPOST -H 'x-threadkeeper: 1' -d 'nope' localhost:37791/api/notes/1)" == *'bad json'* ]] || fail "bad json rejected"

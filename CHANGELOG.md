@@ -2,6 +2,16 @@
 
 Every release, newest first. The version is also shown at the top of the README and by `cli.mjs doctor`.
 
+## 0.13.0 (2026-11-05)
+- Viewer overview page: totals, tokens added and saved, a 30-day activity chart, note types, latest notes, open todos and the project brief.
+- Notes are colour-coded by type; a "needs a check" filter shows notes whose files changed a lot.
+- Light / dark / automatic theme switch; keyboard shortcuts (`j`/`k`, `1`–`4`, `p`, `e`, `d`, `h`, `?`).
+- Session replay: counts of prompts, tool calls, edits and failures; long runs of tool calls fold away; filters for your prompts or failures.
+- Copy a note or a file path in one click; small confirmations after each action.
+- The live refresh no longer redraws unchanged parts, so focus and scroll stay put.
+- Works on a phone-sized window (one panel at a time).
+- README: credits to claude-mem, which inspired this project.
+
 ## 0.12.2 (2026-11-05)
 - Windows: summaries work when Claude Code was installed with npm (`claude.cmd`); `claude.exe` is used when present.
 - Windows and macOS: one folder is one project, whatever the letter case or drive-letter case (`c:\` vs `C:\`).

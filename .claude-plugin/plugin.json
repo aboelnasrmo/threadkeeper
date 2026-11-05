@@ -1,6 +1,6 @@
 {
   "name": "threadkeeper",
-  "version": "0.12.2",
+  "version": "0.13.0",
   "description": "Personal, local-only memory for Claude Code. Captures sessions, summarizes them, and brings them back next time.",
   "author": { "name": "MO" }
 }
