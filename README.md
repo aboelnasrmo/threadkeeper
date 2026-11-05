@@ -1,5 +1,7 @@
 # threadkeeper
 
+**Version 0.12.2** · [Changelog](CHANGELOG.md)
+
 Personal, local-only memory for Claude Code. Built so Claude never loses its place: not after a long session, not after the context is compacted, not next week. No account, no hosted service, no extra dependencies. Inspired by [claude-mem](https://github.com/thedotmack/claude-mem); written from scratch to be small, local-only and token-lean.
 
 ## Why use it
@@ -127,6 +129,29 @@ threadkeeper loads a small index, not everything: the project brief (one page), 
 It also never says the same thing twice: a note loaded at session start is not repeated when Claude opens a related file or you mention its topic, and short replies ("ok", "go on") trigger no recall. A `--resume`d session gets only what changed since it was last active (its old conversation is already back), and after compaction only the brief, rules, todos and "this session so far" come back. The summary model gets a compressed log (file reads and searches counted, not listed; repeated commands merged), about a third smaller. `node src/cli.mjs usage` (and the viewer header) shows what threadkeeper actually cost over the last 7 days.
 
 **Re-read guard.** The biggest token cost in long sessions is Claude reading the same file again. When Claude asks to re-read a file (3 KB or more) that it already read in full this session, that hasn't changed since and hasn't been compacted away, threadkeeper stops that one read and tells Claude the content is still above. If Claude really needs it (a subagent, or after a summary), the very next attempt goes through. Partial reads and subagents are never stopped. Turn it off with `"rereadGuard": false`. Savings show in `usage`. Measured on a 600-note project: about 750 tokens at session start (the brief's short Essentials section loads; the full page is one `brief` call away), about 110 per matching prompt and 140 per newly opened file with history. Raise `contextMaxChars` and friends in settings if you'd rather spend more.
+
+## Troubleshooting by OS
+
+Run `node <plugin folder>/src/cli.mjs doctor` first: it checks Node, the database, the `claude` command, the plugin, sync, encryption and backups, and says what to fix.
+
+**All systems**
+- *Nothing is recorded:* Node must be 22.13 or newer and on the PATH the app sees. If you installed Node while Claude Code or Claude Desktop was open, quit the app fully and reopen it.
+- *No summaries:* the `claude` command must work in a terminal and be signed in. `doctor` shows whether it's found.
+- *Another machine's notes don't appear:* both machines need the same sync folder (`sync <folder>`), and if encryption is on, the same key (`encrypt <key>`). `doctor` names the machine whose notes it can't open.
+
+**macOS**
+- Use the Google Drive / iCloud / Dropbox folder for sync, never the data folder itself.
+- If `doctor` says Node is too old: `brew upgrade node`.
+
+**Windows**
+- Either Claude Code installer works: `claude.exe` (native) is used directly; an npm install (`claude.cmd`) is run through the shell.
+- Paths are matched without regard to case, so `c:\work\app` and `C:\Work\App` are one project.
+- If `restore` reports the file is busy, quit Claude Code and Claude Desktop and run it again.
+- Run the tests in Git Bash or WSL (`bash test/run.sh`).
+
+**Linux**
+- The viewer opens with `xdg-open`; otherwise browse to http://localhost:37777.
+- On a headless server, turn the viewer off with `"autoViewer": false` in settings.
 
 ## Commands
 

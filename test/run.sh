@@ -471,6 +471,11 @@ N "$THREADKEEPER_HOME" "import {projectKey} from '$ROOT/src/sync.mjs'; import {r
   const ok = projectKey('C:\\\\Users\\\\me\\\\My-App')==='my-app' && projectKey('/Users/me/my-app')==='my-app' && projectKey('general')==='general'
     && relPath('/a/app','/a/app/src/x.js')==='src/x.js' && relPath('/a/app','/a/app2/x.js')==='/a/app2/x.js';
   if (!ok) throw new Error('cross-os keys')" || fail "cross-OS project keys and paths"
+# Every release names its version in the README and the changelog.
+V="$(node -p "require('$ROOT/package.json').version")"
+[[ "$(node -p "require('$ROOT/.claude-plugin/plugin.json').version")" == "$V" ]] || fail "plugin.json version"
+grep -q "^\*\*Version $V\*\*" "$ROOT/README.md" || fail "README must show version $V"
+[[ "$(grep -m1 '^## [0-9]' "$ROOT/CHANGELOG.md")" == "## $V "* ]] || fail "CHANGELOG must start with $V"
 echo "13. fuzz: redaction, search queries, de-duplication"
 THREADKEEPER_HOME="$(mktemp -d)" node --no-warnings "$ROOT/test/fuzz.mjs" 1500 || fail "fuzz"
 
