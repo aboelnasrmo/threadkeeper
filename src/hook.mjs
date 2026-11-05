@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Entry point for every Claude Code hook. Must never break Claude: all errors are logged and swallowed.
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -104,6 +104,20 @@ function ensureViewer(cfg) {
   });
 }
 
+/** A viewer from before 0.4.4 has no restart call: stop it by its process, but only if it really is a threadkeeper viewer. */
+function killOldViewer(port) {
+  if (process.platform === 'win32') return false;
+  try {
+    const pids = execFileSync('lsof', ['-ti', `tcp:${port}`, '-sTCP:LISTEN'], { encoding: 'utf8', timeout: 2000 }).split(/\s+/).filter(Boolean);
+    let killed = false;
+    for (const pid of pids) {
+      const cmd = execFileSync('ps', ['-o', 'command=', '-p', pid], { encoding: 'utf8', timeout: 2000 });
+      if (/viewer\.mjs/.test(cmd) && /threadkeeper/.test(cmd)) { process.kill(Number(pid)); killed = true; }
+    }
+    return killed;
+  } catch { return false; }
+}
+
 /** If the running viewer is from another threadkeeper version (e.g. before an auto-update), restart it. */
 async function replaceIfOld(port, start) {
   const base = `http://127.0.0.1:${port}`;
@@ -113,7 +127,7 @@ async function replaceIfOld(port, start) {
     const v = r.ok ? (await r.json()).version : null;
     if (v === VERSION) return;
     const bye = await ask('/api/restart', { method: 'POST', headers: { 'x-threadkeeper': '1' } });
-    if (!bye.ok) return; // a viewer older than 0.4.4 can't be asked to stop; it is replaced after a reboot
+    if (!bye.ok) { if (killOldViewer(port)) setTimeout(start, 300); return; } // older than 0.4.4: can't be asked to stop
     for (let i = 0; i < 20; i++) {
       await new Promise((ok) => setTimeout(ok, 100));
       try { await ask('/api/version'); } catch { return start(); }

@@ -353,12 +353,12 @@ export function gitBranch(project) {
   } catch { return null; }
 }
 
-/** Totals for the last `days` days: tokens threadkeeper added to Claude's context, and summary-model calls. */
-export function usageSummary(days = 7) {
+/** Totals for the last `days` days (one project, or all): tokens threadkeeper added to Claude's context, summary-model calls, re-reads saved. */
+export function usageSummary(days = 7, project = null) {
   const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
   const rows = openDb().prepare(
-    `SELECT kind, sum(n) n, sum(chars_in) cin, sum(chars_out) cout FROM usage WHERE day >= ? GROUP BY kind`
-  ).all(since);
+    `SELECT kind, sum(n) n, sum(chars_in) cin, sum(chars_out) cout FROM usage WHERE day >= ? ${project ? 'AND project = ?' : ''} GROUP BY kind`
+  ).all(since, ...(project ? [project] : []));
   const get = (k) => rows.find((r) => r.kind === k) || { n: 0, cin: 0, cout: 0 };
   const inj = get('inject'), mod = get('model'), saved = get('saved');
   return {
@@ -367,6 +367,17 @@ export function usageSummary(days = 7) {
     model: { calls: mod.n, tokensIn: Math.round(mod.cin / 4), tokensOut: Math.round(mod.cout / 4) },
     saved: { rereads: saved.n, tokens: Math.round(saved.cin / 4) },
   };
+}
+
+/** The same numbers per project, biggest first. */
+export function usageByProject(days = 7) {
+  const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const t = (k, col = 'chars_in') => `round(sum(CASE WHEN kind = '${k}' THEN ${col} ELSE 0 END) / 4.0)`;
+  return openDb().prepare(
+    `SELECT project, ${t('inject')} added, ${t('saved')} saved, sum(CASE WHEN kind = 'saved' THEN n ELSE 0 END) rereads,
+       sum(CASE WHEN kind = 'model' THEN n ELSE 0 END) calls, ${t('model')} + ${t('model', 'chars_out')} model
+     FROM usage WHERE day >= ? GROUP BY project ORDER BY added + saved + model DESC`
+  ).all(since);
 }
 
 export function filesOf(d, memoryId) {

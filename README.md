@@ -1,6 +1,6 @@
 # threadkeeper
 
-**Version 0.13.0** · [Changelog](CHANGELOG.md)
+**Version 0.13.1** · [Changelog](CHANGELOG.md)
 
 Personal, local-only memory for Claude Code. Built so Claude never loses its place: not after a long session, not after the context is compacted, not next week. No account, no hosted service, no extra dependencies. Inspired by [claude-mem](https://github.com/thedotmack/claude-mem); written from scratch to be small, local-only and token-lean.
 
@@ -85,7 +85,7 @@ Repeated notes are merged instead of piling up: a new note with the same title a
 
 Starts by itself with Claude Code at http://localhost:37777 and only answers on your own machine.
 
-- **Overview** (click the logo): notes, sessions, todos and tokens at a glance, a 30-day activity chart, what kinds of notes you have, the latest notes, and the project brief Claude sees first.
+- **Overview** (click the logo): notes, sessions, todos and tokens at a glance (per project too: tokens added, tokens saved by skipped re-reads, summary-model calls), a 30-day activity chart, what kinds of notes you have, the latest notes, and the project brief Claude sees first.
 - **Browse and search** every project (including imported claude-mem history). Notes are colour-coded by type, and search highlights matches (press `/`).
 - **Keep memory accurate**: pin notes so they always load, edit, mark outdated or forget them, close todos, and see notes whose files changed a lot ("needs a check").
 - **Replay sessions**: every prompt and tool call, with long runs folded and filters for your prompts or failures.

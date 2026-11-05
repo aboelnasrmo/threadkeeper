@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOME, loadConfig, VERSION } from './config.mjs';
-import { openDb, filesOf, resolveTodos, updateMemory, MEMORY_TYPES, markSuperseded, usageSummary, RANK } from './db.mjs';
+import { openDb, filesOf, resolveTodos, updateMemory, MEMORY_TYPES, markSuperseded, usageSummary, usageByProject, RANK } from './db.mjs';
 import { healthProblems } from './health.mjs';
 import { ftsQuery } from './mcp.mjs';
 import { spawnSummarizer } from './hook.mjs';
@@ -96,6 +96,8 @@ async function api(url, method, req) {
       brief: project ? d.prepare("SELECT id, body, created_at FROM memories WHERE project = ? AND type = 'brief' ORDER BY id DESC LIMIT 1").get(project) || null : null,
       recent: withFiles(d, d.prepare(`SELECT * FROM memories ${where} ${where ? 'AND' : 'WHERE'} type NOT IN ('brief', 'session') AND superseded_at IS NULL ORDER BY created_at DESC, id DESC LIMIT 6`).all(...pa)),
       todos: d.prepare(`SELECT id, title, created_at FROM memories ${where} ${where ? 'AND' : 'WHERE'} type = 'todo' AND status = 'open' AND superseded_at IS NULL ORDER BY id DESC LIMIT 6`).all(...pa),
+      usage: usageSummary(7, project),
+      usageByProject: project ? [] : usageByProject(7),
       stale: d.prepare(`SELECT count(*) n FROM memories ${where} ${where ? 'AND' : 'WHERE'} stale_at IS NOT NULL AND superseded_at IS NULL`).get(...pa).n,
     }];
   }

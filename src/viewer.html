@@ -146,6 +146,11 @@
   .link-row { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 6px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
   .link-row:last-child { border-bottom: 0; }
   .link-row:hover .name { color: var(--accent); }
+  .utab { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .utab th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 4px 8px 6px 0; border-bottom: 1px solid var(--line); }
+  .utab td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); }
+  .utab tr[data-p] { cursor: pointer; } .utab tbody tr:hover td { color: var(--accent); }
+  .utab th:not(:first-child), .utab td:not(:first-child) { text-align: right; }
   .brief { white-space: pre-wrap; font-size: 13px; max-height: 280px; overflow: auto; }
 
   .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 10px; font-size: 13px; opacity: 0; transition: .2s; pointer-events: none; z-index: 10; }
@@ -418,7 +423,7 @@ function chartSvg(activity) {
 
 async function homeView() {
   const h = await get('/api/home' + qs({ project: state.project }));
-  const c = overview.counts, u = overview.usage;
+  const c = overview.counts, u = h.usage;
   const p = state.project ? overview.projects.find((x) => x.project === state.project) : null;
   const total = h.types.reduce((a, b) => a + b.n, 0) || 1;
   const notes30 = h.activity.reduce((a, b) => a + b.notes, 0), sess30 = h.activity.reduce((a, b) => a + b.sessions, 0);
@@ -433,8 +438,9 @@ async function homeView() {
       <button class="tile" data-go="todos"><div class="v">${state.project ? h.todos.length + (h.todos.length >= 6 ? '+' : '') : c.todos}</div><div class="l">open todos</div></button>
       ${state.project ? '' : `<div class="tile"><div class="v">${c.pinned}</div><div class="l">pinned (always loaded)</div></div>`}
       ${h.stale ? `<button class="tile" data-go="stale"><div class="v" style="color:var(--warn)">${h.stale}</div><div class="l">notes need a check</div></button>` : ''}
-      ${u && !state.project ? `<div class="tile" title="Context threadkeeper added to Claude in the last 7 days"><div class="v">~${fmtK(u.injected.tokens)}</div><div class="l">tokens added (7d)</div></div>` : ''}
-      ${u && u.saved.tokens && !state.project ? `<div class="tile" title="Tokens saved by skipping re-reads of unchanged files, last 7 days"><div class="v" style="color:var(--ok)">~${fmtK(u.saved.tokens)}</div><div class="l">tokens saved (7d)</div></div>` : ''}
+      <div class="tile" title="Context threadkeeper added to Claude in the last 7 days (briefs, recalled notes, file notes)"><div class="v">~${fmtK(u.injected.tokens)}</div><div class="l">tokens added (7d)</div></div>
+      <div class="tile" title="Tokens saved in the last 7 days by stopping ${u.saved.rereads} re-read(s) of files Claude already had"><div class="v" style="color:var(--ok)">~${fmtK(u.saved.tokens)}</div><div class="l">tokens saved (7d)</div></div>
+      <div class="tile" title="Background summary-model calls in the last 7 days (~${fmtK(u.model.tokensIn + u.model.tokensOut)} tokens, billed to your plan, not your chat context)"><div class="v">${u.model.calls}</div><div class="l">summary calls (7d)</div></div>
     </div>
     <div class="card"><div class="sec-h" style="margin:0 0 6px">Last 30 days · ${notes30} notes from ${sess30} sessions</div>${chartSvg(h.activity)}
       <div class="legend"><span><i style="background:var(--accent)"></i>notes written</span><span><i style="background:var(--muted);opacity:.5"></i>days with sessions</span></div></div>
@@ -447,6 +453,11 @@ async function homeView() {
         ${h.todos.length ? `<div class="sec-h" style="margin:14px 0 4px">Open todos</div>${h.todos.map((t) => `<button class="link-row" data-n="${t.id}"><span class="name" style="font-weight:500">${esc(t.title)}</span> <span class="sub">${ago(t.created_at)}</span></button>`).join('')}` : ''}
       </div>
     </div>
+    ${h.usageByProject.length ? `<div class="card"><div class="sec-h" style="margin:0 0 8px">Tokens by project · last 7 days</div>
+      <table class="utab"><thead><tr><th>Project</th><th>Added to context</th><th>Saved (re-reads)</th><th>Summary model</th></tr></thead><tbody>
+      ${h.usageByProject.map((r) => `<tr data-p="${esc(r.project)}" tabindex="0" title="${esc(r.project)}"><td>${esc(projName(r.project))}</td><td>~${fmtK(r.added)}</td>
+        <td style="color:var(--ok)">${r.saved ? '~' + fmtK(r.saved) + ` <span class="sub">(${r.rereads})</span>` : '–'}</td><td>${r.calls ? `${r.calls} calls · ~${fmtK(r.model)}` : '–'}</td></tr>`).join('')}
+      </tbody></table></div>` : ''}
     <div class="sub" style="margin-top:8px">Press <kbd>?</kbd> for keyboard shortcuts.</div>
   </div>`;
 }
@@ -537,6 +548,7 @@ $('list').addEventListener('click', (e) => {
 });
 
 $('detail').addEventListener('click', async (e) => {
+  const pr = e.target.closest('tr[data-p]'); if (pr) { state.project = pr.dataset.p; state.type = null; persist(); return refresh(); }
   const copyEl = e.target.closest('[data-copy]'); if (copyEl) { e.stopPropagation(); return copy(copyEl.dataset.copy, 'Path copied'); }
   const go = e.target.closest('[data-goto]'); if (go) { e.preventDefault(); return openNote(go.dataset.goto); }
   const t = e.target.closest('button'); if (!t) return;
@@ -583,6 +595,7 @@ function moveSel(step) {
   const el = items[i]; el.scrollIntoView({ block: 'nearest' }); el.click();
 }
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.matches?.('tr[data-p]')) return e.target.click();
   const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
   if (e.key === 'Escape' && document.activeElement === $('q')) { $('q').value = ''; state.query = ''; $('q').blur(); return refresh(); }
   if (typing || e.metaKey || e.ctrlKey || e.altKey || $('keys').open) return;

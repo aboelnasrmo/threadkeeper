@@ -2,6 +2,10 @@
 
 Every release, newest first. The version is also shown at the top of the README and by `cli.mjs doctor`.
 
+## 0.13.1 (2026-11-05)
+- Viewer: token use per project. Each project's overview shows tokens added, tokens saved and summary-model calls for the last 7 days, and the all-projects overview has a "Tokens by project" table.
+- A viewer left running from a very old version (before 0.4.4) is now stopped and replaced at the next session start (macOS and Linux), instead of showing an empty page until a reboot.
+
 ## 0.13.0 (2026-11-05)
 - Viewer overview page: totals, tokens added and saved, a 30-day activity chart, note types, latest notes, open todos and the project brief.
 - Notes are colour-coded by type; a "needs a check" filter shows notes whose files changed a lot.
