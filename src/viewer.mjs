@@ -7,8 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { HOME, loadConfig, VERSION } from './config.mjs';
 import { openDb, filesOf, resolveTodos, updateMemory, MEMORY_TYPES, markSuperseded, usageSummary, usageByProject, RANK, openConflicts, settleConflict, searchPrompts } from './db.mjs';
 import { healthProblems } from './health.mjs';
+import { claudeCodeProjects, findMissed } from './recover.mjs';
 import { ftsQuery, expandQuery, loadHelpers } from './mcp.mjs';
-import { spawnSummarizer } from './hook.mjs';
+import { spawnSummarizer, spawnDetached } from './hook.mjs';
 
 const PORT = Number(process.env.THREADKEEPER_PORT) || 37777;
 const PAGE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'viewer.html');
@@ -131,6 +132,14 @@ async function api(url, method, req) {
       recall: (await import('./learn.mjs')).recallStats(project, d),
       conflicts: openConflicts(d, project, 10),
       tokens: project ? (await import('./tokens.mjs')).tokenReport(project, 14, d) : null,
+      // Past Claude Code sessions here that are not in memory yet (the viewer offers to build notes from them).
+      past: project ? (() => {
+        try {
+          const rec = d.prepare('SELECT value FROM sync_state WHERE key = ?').get('building:' + project)?.value;
+          const missed = findMissed(project, loadConfig(), { all: true, olderThanMs: 0 });
+          return { missed: missed.length, newest: missed[0] ? new Date(missed[0].mtime).toISOString() : null, building: rec && Date.now() - Date.parse(rec) < 30 * 60000 ? rec : null };
+        } catch { return null; }
+      })() : null,
       usageByProject: project ? [] : usageByProject(7),
       stale: d.prepare(`SELECT count(*) n FROM memories ${where} ${where ? 'AND' : 'WHERE'} stale_at IS NOT NULL AND superseded_at IS NULL`).get(...pa).n,
     }];
@@ -157,6 +166,11 @@ async function api(url, method, req) {
            SELECT project, 0, count(*), max(created_at) FROM memories GROUP BY project
          ) GROUP BY project ORDER BY last DESC`
       ).all(),
+      // Folders Claude Code has worked in that have nothing in memory yet.
+      history: (() => {
+        const known = new Set(d.prepare('SELECT DISTINCT project FROM memories UNION SELECT DISTINCT project FROM sessions').all().map((r) => r.project));
+        try { return claudeCodeProjects().filter((x) => !known.has(x.project)); } catch { return []; }
+      })(),
       outdated: n('SELECT count(*) n FROM memories WHERE superseded_at IS NOT NULL'),
       paused: (await import('./privacy.mjs')).pausedUntil(d),
       health: healthProblems(loadConfig()),
@@ -231,6 +245,16 @@ async function api(url, method, req) {
     const body = await readJson(req);
     if (!['old', 'new', 'both'].includes(body.keep)) return [400, { error: 'keep must be old, new or both' }];
     return [200, { ok: settleConflict(d, Number(m[1]), body.keep) }];
+  }
+  if (method === 'POST' && p === '/api/build') {
+    // Build memory from a project's past Claude Code sessions: rebuild the newest N and summarize them (background).
+    const body = await readJson(req);
+    const project = String(body.project || '');
+    const limit = Math.max(1, Math.min(50, Number(body.limit) || 5));
+    if (!findMissed(project, loadConfig(), { all: true, olderThanMs: 0 }).length) return [400, { error: 'no past sessions to build from' }];
+    d.prepare('INSERT INTO sync_state(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('building:' + project, new Date().toISOString());
+    spawnDetached('recover.mjs', project, '--all', String(limit));
+    return [200, { started: true, limit }];
   }
   if (method === 'POST' && p === '/api/share') {
     const body = await readJson(req);

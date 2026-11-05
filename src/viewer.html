@@ -323,6 +323,9 @@ async function loadOverview() {
     live.filter(match).map(proj).join('') +
     (imported.length ? `<details class="sec" id="impsec" ${openImported ? 'open' : ''}><summary class="sec-h">Imported from claude-mem (${imported.length})</summary>
        <div class="sub" style="padding:0 16px 4px">Attaches to a project when you open that folder.</div>${imported.filter(match).map(proj).join('')}</details>` : '') +
+    (overview.history?.length ? `<details class="sec" id="histsec" ${store.get('threadkeeper-hist-open', false) || pf ? 'open' : ''}><summary class="sec-h">Not in memory yet (${overview.history.length})</summary>
+       <div class="sub" style="padding:0 16px 4px">Folders with Claude Code history. Open one to build its memory from past sessions, or just work there.</div>${overview.history.filter(match).map((p) => `<button class="item" data-p="${esc(p.project)}" aria-current="${state.project === p.project}" title="${esc(p.project)}">
+      <div class="name">${esc(projName(p.project))}</div><div class="sub">${p.sessions} past session(s) · ${ago(p.last)}</div></button>`).join('')}</details>` : '') +
     (overview.health.length ? `<h2>Needs attention</h2><div style="padding:0 16px 8px">${overview.health.map((h) => `<div class="sub" style="color:var(--${h.level === 'warn' ? 'err' : 'warn'});margin-bottom:6px">${esc(h.text)}</div>`).join('')}</div>` : '') +
     (overview.errors.length ? `<details class="sec"><summary class="sec-h">Recent errors (${overview.errors.length})</summary><div class="errors">${esc(overview.errors.join('\n'))}</div></details>` : '') +
     `<h2>Data</h2><div class="sub" style="padding:0 16px 16px;word-break:break-all">${esc(overview.home)}<br>summaries: ${esc(overview.config.model)} · min ${overview.config.minToolCalls} tool calls or 1 edit</div>`;
@@ -455,7 +458,7 @@ function chartSvg(activity) {
 async function homeView() {
   const h = await get('/api/home' + qs({ project: state.project }));
   const c = overview.counts, u = h.usage;
-  const p = state.project ? overview.projects.find((x) => x.project === state.project) : null;
+  const p = state.project ? (overview.projects.find((x) => x.project === state.project) || { memories: 0, sessions: 0 }) : null;
   const total = h.types.reduce((a, b) => a + b.n, 0) || 1;
   const notes30 = h.activity.reduce((a, b) => a + b.notes, 0), sess30 = h.activity.reduce((a, b) => a + b.sessions, 0);
   const row = (m) => `<button class="link-row" data-n="${m.id}"><div>${typePill(m)}<span class="sub">${ago(m.created_at)}</span></div><div class="name" style="font-weight:500">${esc(m.title)}</div></button>`;
@@ -465,6 +468,10 @@ async function homeView() {
     <div class="sub">${state.project ? esc(state.project) : `${overview.projects.length} projects · stored at ${esc(overview.home)}`}</div>
     ${state.project ? `<div class="row"><a class="btn" href="/api/export?project=${encodeURIComponent(state.project)}" download title="All live notes of this project in one readable Markdown file">Export notes (.md)</a>
       <button class="btn" id="a-share" title="Write the decisions and gotchas to .claude/team-memory.md in the repo, imported by CLAUDE.md, so teammates' Claude knows them too">Share with team</button></div>` : ''}
+    ${h.past?.missed || h.past?.building ? `<div class="card" style="margin-top:12px"><div class="sec-h" style="margin:0 0 6px">Past sessions not in memory</div>
+      ${h.past.building ? `<div class="sub">Building memory from past sessions (started ${ago(h.past.building)}). Notes appear here as each one is summarized.</div>` : `
+      <div class="sub" style="margin-bottom:8px">Claude Code has ${h.past.missed} earlier session(s) in this folder that threadkeeper never saw (newest ${ago(h.past.newest)}). Build notes from them: one small summary call per session, newest first.</div>
+      <div class="row">${[5, 20].filter((n, i) => i === 0 || h.past.missed > 5).map((n) => `<button class="btn" data-build="${Math.min(n, h.past.missed)}">Build from the latest ${Math.min(n, h.past.missed)}</button>`).join('')}</div>`}</div>` : ''}
     <div class="tiles">
       <button class="tile" data-go="notes"><div class="v">${fmtK(p ? p.memories : c.memories)}</div><div class="l">notes</div></button>
       <button class="tile" data-go="sessions"><div class="v">${p ? p.sessions : c.sessions}</div><div class="l">sessions</div></button>
@@ -585,7 +592,7 @@ $('projects').addEventListener('input', (e) => {
   $('projects').querySelectorAll('[data-p]').forEach((el) => { if (el.dataset.p) el.hidden = !!pf && !el.dataset.p.toLowerCase().includes(pf); });
   if (pf && $('impsec')) $('impsec').open = true;
 });
-$('projects').addEventListener('toggle', (e) => { if (e.target.id === 'impsec') store.set('threadkeeper-imported-open', e.target.open); }, true);
+$('projects').addEventListener('toggle', (e) => { if (e.target.id === 'impsec') store.set('threadkeeper-imported-open', e.target.open); if (e.target.id === 'histsec') store.set('threadkeeper-hist-open', e.target.open); }, true);
 $('mproj').onchange = (e) => { state.project = e.target.value || null; state.sel = null; persist(); refresh(); };
 
 $('list').addEventListener('click', (e) => {
@@ -616,6 +623,10 @@ $('detail').addEventListener('click', async (e) => {
   }
   if (t.dataset.conf) { await post('/api/conflicts/' + t.dataset.conf, { keep: t.dataset.keep }); toast('Settled'); $('detail')._html = null; return refresh(); }
   if (t.dataset.evf) { state.evFilter = t.dataset.evf; return loadDetail(); }
+  if (t.dataset.build) {
+    const r = await post('/api/build', { project: state.project, limit: Number(t.dataset.build) });
+    toast(r.error || `Building memory from ${r.limit} past session(s) in the background`); $('detail')._html = null; return refresh();
+  }
   const n = current?.n;
   switch (t.id) {
     case 'a-pin': return act.pin();

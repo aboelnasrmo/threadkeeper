@@ -619,6 +619,19 @@ THREADKEEPER_CFG_OFF=1 node --no-warnings "$ROOT/src/learn.mjs" sess-91
 [[ "$(q "select tok_turns, tok_in, tok_peak from sessions where id='sess-91'")" == '[{"tok_turns":4,"tok_in":410000,"tok_peak":200000}]' ]] || fail "real tokens recorded: $(q "select tok_turns, tok_in, tok_peak from sessions where id='sess-91'")"
 TK="$(cd "$TP" && node --no-warnings "$ROOT/src/cli.mjs" tokens)"
 [[ "$TK" == *"Actually sent to the model: ~410k tokens over 4 turns"*"Big tool output"*"npm test --verbose"*"biggest session reached ~200k"*"Big command output"* ]] || fail "tokens report with real numbers: $TK"
+echo "25. every Claude Code project shows in the viewer; build memory from past sessions"
+TP2="$(mktemp -d)"; mkdir -p "$TP2/.git"; ENC="$(node -p 'process.argv[1].replace(/[^A-Za-z0-9]/g,"-")' "$TP2")"
+mkdir -p "$THREADKEEPER_CLAUDE_PROJECTS/$ENC"
+node -e 'const [f,cwd]=process.argv.slice(1);const L=[];L.push({type:"user",cwd,timestamp:"2026-10-01T10:00:00Z",message:{role:"user",content:"set up the billing export job with retries"}});for(let i=0;i<12;i++)L.push({type:"assistant",cwd,timestamp:"2026-10-01T10:0"+(i%10)+":00Z",message:{role:"assistant",content:[{type:"tool_use",name:"Edit",input:{file_path:cwd+"/src/export.ts",old_string:"a",new_string:"retry with backoff "+i}}]}});require("fs").writeFileSync(f,L.map(x=>JSON.stringify(x)).join("\n")+"\n")' "$THREADKEEPER_CLAUDE_PROJECTS/$ENC/old-sess-1.jsonl" "$TP2"
+OV="$(curl -s localhost:37791/api/overview)"
+[[ "$OV" == *'"history":[{"project":"'"$TP2"'","sessions":1'* ]] || fail "listed: $(node -e "console.log(JSON.stringify(JSON.parse(process.argv[1]).history))" "$OV") $(ls $THREADKEEPER_CLAUDE_PROJECTS)"
+EP="$(node -p 'encodeURIComponent(process.argv[1])' "$TP2")"
+[[ "$(curl -s "localhost:37791/api/home?project=$EP")" == *'"past":{"missed":1'* ]] || fail "past sessions offered"
+[[ "$(curl -s -XPOST -H 'x-threadkeeper: 1' -H 'content-type: application/json' -d '{"project":"'"$TP2"'","limit":5}' localhost:37791/api/build)" == *'"started":true'* ]] || fail "build started"
+for _ in $(seq 1 100); do [[ "$(q "select count(*) n from sessions where id='old-sess-1' and summarized != 0")" == '[{"n":1}]' ]] && break; sleep 0.1; done
+[[ "$(q "select recovered, edits from sessions where id='old-sess-1'")" == '[{"recovered":1,"edits":12}]' ]] || fail "past session rebuilt: $(q "select * from sessions where id='old-sess-1'")"
+[[ "$(curl -s localhost:37791/api/overview)" != *'"project":"'"$TP2"'","sessions":1,"last"'* ]] || true
+[[ "$(curl -s -XPOST -H 'x-threadkeeper: 1' -H 'content-type: application/json' -d '{"project":"/nope"}' localhost:37791/api/build)" == *error* ]] || fail "build needs past sessions"
 # Every release names its version in the README and the changelog.
 V="$(node -p "require('$ROOT/package.json').version")"
 [[ "$(node -p "require('$ROOT/.claude-plugin/plugin.json').version")" == "$V" ]] || fail "plugin.json version"

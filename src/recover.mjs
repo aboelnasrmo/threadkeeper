@@ -111,6 +111,39 @@ export function importAllClaudeMemory() {
   return out;
 }
 
+// ---------- Every project Claude Code has worked in (for the viewer) ----------
+
+let cpCache = null;
+/** Folders on this machine with Claude Code session history: [{ project, sessions, last }]. Cached for a minute. */
+export function claudeCodeProjects() {
+  const root = claudeProjectsDir();
+  let rootM = 0;
+  try { rootM = fs.statSync(root).mtimeMs; } catch {}
+  if (cpCache && cpCache.root === root && cpCache.rootM === rootM && Date.now() - cpCache.at < 60000) return cpCache.list;
+  const byProject = new Map();
+  let dirs = [];
+  try { dirs = fs.readdirSync(root); } catch {}
+  for (const name of dirs) {
+    const dir = path.join(root, name);
+    let files = [];
+    try { files = fs.readdirSync(dir).filter((n) => n.endsWith('.jsonl')); } catch { continue; }
+    if (!files.length) continue;
+    const cwd = cwdOfClaudeProject(dir);
+    if (!cwd || !fs.existsSync(cwd)) continue;
+    const abs = path.resolve(cwd);
+    if (abs === path.resolve(os.homedir()) || path.dirname(abs) === abs || /[\\/](scratch-workspaces|claude-\d+|var[\\/]folders)[\\/]/i.test(abs)) continue; // Desktop scratch and throwaway temp folders
+    if (encodeProject(projectFor(cwd)) !== name) continue; // a subfolder of a project: its sessions belong to that project
+    let last = 0, n = 0;
+    for (const f of files) {
+      try { const st = fs.statSync(path.join(dir, f)); if (st.size >= 2048) { n++; last = Math.max(last, st.mtimeMs); } } catch {}
+    }
+    if (n) byProject.set(projectFor(cwd), { project: projectFor(cwd), sessions: n, last: new Date(last).toISOString() });
+  }
+  const list = [...byProject.values()].sort((a, b) => b.last.localeCompare(a.last));
+  cpCache = { at: Date.now(), root, rootM, list };
+  return list;
+}
+
 // ---------- 2. Sessions threadkeeper missed ----------
 
 function describe(name, input = {}, project) {
@@ -220,10 +253,13 @@ export function recoverMissed(project, cfg, { all = false, limit = 3, olderThanM
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
 if (isMain && process.argv[2]) {
   const cfg = loadConfig();
+  // `recover.mjs <project> --all N`: the viewer's "Build memory from past sessions" (newest N, any age).
+  const all = process.argv[3] === '--all';
   try {
-    const rec = recoverMissed(process.argv[2], cfg);
+    const rec = recoverMissed(process.argv[2], cfg, all ? { all: true, limit: Math.min(50, Number(process.argv[4]) || 5), olderThanMs: 0 } : {});
     const { summarizeSession } = await import('./summarize.mjs');
     for (const r of rec) { try { summarizeSession(r.id, cfg); } catch (e) { logError(`recover summarize ${r.id}`, e); } }
-    if (rec.length) (await import('./brief.mjs')).maybeRefreshBrief(process.argv[2], cfg).catch((e) => logError('brief', e));
+    if (rec.length) await (await import('./brief.mjs')).maybeRefreshBrief(process.argv[2], cfg).catch((e) => logError('brief', e));
   } catch (e) { logError('recover', e); }
+  if (all) try { openDb().prepare('DELETE FROM sync_state WHERE key = ?').run('building:' + process.argv[2]); } catch {}
 }

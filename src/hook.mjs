@@ -72,7 +72,7 @@ export function bigOutput(name, resp) {
 // Tools that add noise without telling a future session anything.
 const SKIP_TOOLS = /^(ToolSearch|mcp__(plugin_)?threadkeeper.*|TaskList|TaskGet|ListMcpResourcesTool)$/;
 
-function spawnDetached(file, ...args) {
+export function spawnDetached(file, ...args) {
   const script = path.join(path.dirname(fileURLToPath(import.meta.url)), file);
   spawn(process.execPath, ['--no-warnings', script, ...args], {
     cwd: HOME, detached: true, windowsHide: true, stdio: 'ignore', env: { ...process.env, THREADKEEPER_DISABLE: '1' },

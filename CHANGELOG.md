@@ -2,6 +2,11 @@
 
 Every release, newest first. The version is also shown at the top of the README and by `cli.mjs doctor`.
 
+## 0.19.0 (2026-11-05)
+- **Every project in the viewer**: the sidebar now also lists folders Claude Code has worked in on this machine but that have nothing in memory yet ("Not in memory yet"), found from Claude Code's own session history.
+- **Build memory from past sessions**: a project's overview shows how many earlier Claude Code sessions there threadkeeper never saw, with "Build from the latest 5 / 20". They are rebuilt and summarized in the background (one small summary call each, newest first).
+- `recover.mjs <folder> --all N` does the same from the command line.
+
 ## 0.18.0 (2026-11-05)
 Real numbers, and the biggest lever: not re-sending a huge conversation for a new task.
 - **Real token use**: when a session ends, threadkeeper reads Claude Code's own log of it and records what was actually sent to the model (every turn re-sends the conversation, mostly from cache), what was written, and the biggest the conversation got. `tokens` and the viewer's "Where tokens go" card now show these real totals and the biggest sessions, not estimates.
