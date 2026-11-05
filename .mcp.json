@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "threadkeeper": {
+      "command": "node",
+      "args": ["--no-warnings", "${CLAUDE_PLUGIN_ROOT}/src/mcp.mjs"]
+    }
+  }
+}

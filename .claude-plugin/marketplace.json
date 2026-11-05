@@ -1,0 +1,7 @@
+{
+  "name": "threadkeeper",
+  "owner": { "name": "MO" },
+  "plugins": [
+    { "name": "threadkeeper", "source": "./", "description": "Personal, local-only memory for Claude Code." }
+  ]
+}

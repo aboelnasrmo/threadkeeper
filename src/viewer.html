@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>threadkeeper</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1b; --muted: #66665f; --line: #e4e3df;
+    --accent: #b5562a; --accent-soft: #f6e7dd; --ok: #2b7149; --warn: #8f5b00; --err: #b3261e;
+    --focus: #2f6fdb;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --muted: #a3a29b; --line: #34342f;
+            --accent: #e5935f; --accent-soft: #3a2a20; --ok: #6cc28f; --warn: #e0b04f; --err: #f2867e; --focus: #7aa7ff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  header { display: flex; align-items: center; gap: 16px; padding: 10px 20px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; }
+  header h1 span { color: var(--accent); }
+  .stats { display: flex; gap: 14px; color: var(--muted); font-size: 13px; }
+  .stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .live { margin-left: auto; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  input[type=search], input[type=text], textarea, select { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
+  input[type=search] { width: 300px; }
+  main { display: grid; grid-template-columns: 230px 400px 1fr; height: calc(100vh - 51px); }
+  .col { overflow-y: auto; border-right: 1px solid var(--line); }
+  .col h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 16px 6px; }
+  .item { display: block; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--line); padding: 10px 16px; cursor: pointer; }
+  .item:hover { background: var(--accent-soft); }
+  .item[aria-current="true"] { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+  .name { font-weight: 600; word-break: break-word; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .wk-h { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 10px 16px 2px; }
+  .item.wk { padding: 6px 16px; }
+  .clip { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .tabs { display: flex; gap: 4px; padding: 10px 12px 0; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 1; }
+  .tab { background: none; border: 0; padding: 8px 12px; border-bottom: 2px solid transparent; cursor: pointer; color: var(--muted); }
+  .tab[aria-selected="true"] { color: var(--ink); border-color: var(--accent); font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .chip { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 2px 10px; font-size: 12px; cursor: pointer; }
+  .chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+  .pill { display: inline-block; font-size: 11px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); margin-right: 4px; }
+  .pill.ok { color: var(--ok); border-color: currentColor; } .pill.warn { color: var(--warn); border-color: currentColor; }
+  .pill.err { color: var(--err); border-color: currentColor; } .pill.pin { color: var(--accent); border-color: currentColor; }
+  .detail { padding: 18px 24px; overflow-y: auto; }
+  .detail h3 { margin: 18px 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .mem { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+  .mem.session { border-color: var(--accent); }
+  .mem .t { font-weight: 600; margin-bottom: 4px; }
+  .files { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 6px; word-break: break-all; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .btn { font-size: 12px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; }
+  .btn.primary { border-color: var(--accent); color: var(--accent); }
+  .btn.danger:hover { border-color: var(--err); color: var(--err); }
+  .ev { font-family: var(--mono); font-size: 12px; padding: 4px 0; border-bottom: 1px dashed var(--line); white-space: pre-wrap; word-break: break-word; }
+  .ev .k { color: var(--accent); margin-right: 6px; }
+  .ev.prompt { font-family: inherit; font-size: 13px; padding: 10px 0 6px; border-bottom: 0; }
+  .ev.prompt .k { color: var(--ok); }
+  .ev.fail { color: var(--err); }
+  .empty { color: var(--muted); padding: 32px 20px; }
+  .errors { font-family: var(--mono); font-size: 11px; color: var(--err); padding: 0 16px 16px; white-space: pre-wrap; word-break: break-all; }
+  .edit label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  .edit input[type=text], .edit textarea { width: 100%; }
+  .edit textarea { min-height: 140px; resize: vertical; }
+  .around a { color: inherit; }
+  .more { width: 100%; padding: 12px; background: none; border: 0; color: var(--accent); cursor: pointer; }
+  mark { background: var(--accent-soft); color: inherit; }
+  @media (max-width: 960px) { main { grid-template-columns: 1fr; height: auto; } .col { border-right: 0; max-height: 60vh; } input[type=search] { width: 100%; } .stats { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>my-<span>mem</span></h1>
+  <div class="stats" id="stats" aria-live="polite"></div>
+  <label class="sr" for="q">Search notes</label>
+  <input type="search" id="q" placeholder="Search notes…  ( / )" autocomplete="off">
+  <div class="live" role="status"><span class="dot" aria-hidden="true"></span><span id="tick">live</span></div>
+</header>
+<main>
+  <nav class="col" id="projects" aria-label="Projects"></nav>
+  <section class="col" aria-label="List">
+    <div class="tabs" role="tablist" aria-label="View">
+      <button class="tab" role="tab" data-tab="notes">Notes</button>
+      <button class="tab" role="tab" data-tab="sessions">Sessions</button>
+      <button class="tab" role="tab" data-tab="todos">Todos</button>
+      <button class="tab" role="tab" data-tab="week">This week</button>
+    </div>
+    <div id="list"></div>
+  </section>
+  <section class="detail" id="detail" aria-label="Details" aria-live="polite">
+    <div class="empty">Pick a note or a session. Press <kbd>/</kbd> to search.</div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const ago = (iso) => { if (!iso) return ''; const s = (Date.now() - new Date(iso)) / 1000;
+  return s < 60 ? 'just now' : s < 3600 ? `${Math.floor(s/60)}m ago` : s < 86400 ? `${Math.floor(s/3600)}h ago` : new Date(iso).toLocaleDateString(); };
+const projName = (p) => p.startsWith('claude-mem:') ? p.slice(11) : p.split('/').filter(Boolean).slice(-2).join('/');
+const get = (u) => fetch(u).then((r) => r.json());
+const post = (u, body) => fetch(u, { method: 'POST', headers: { 'x-threadkeeper': '1', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }).then((r) => r.json());
+const qs = (o) => '?' + Object.entries(o).filter(([, v]) => v !== null && v !== undefined && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+
+const saved = (() => { try { return JSON.parse(localStorage.getItem('threadkeeper-view') || '{}'); } catch { return {}; } })();
+const state = { project: saved.project ?? null, tab: saved.tab || 'notes', type: null, query: '', done: false, old: false,
+  sel: null /* {kind:'note'|'session', id} */, limit: 50, editing: false };
+const persist = () => { try { localStorage.setItem('threadkeeper-view', JSON.stringify({ project: state.project, tab: state.tab })); } catch {} };
+let overview = { types: [] };
+
+function sessionStatus(s) {
+  if (!s.ended_at) return '<span class="pill warn">in progress</span>';
+  if (s.summarized === 1) return '<span class="pill ok">remembered</span>';
+  if (s.summarized === -1) return s.summarize_attempts >= 3 ? '<span class="pill err">summary failed</span>' : '<span class="pill">too small, skipped</span>';
+  return '<span class="pill warn">summarizing…</span>';
+}
+const typePill = (m) => `<span class="pill${m.type === 'brief' ? ' pin' : ''}">${esc(m.type)}${m.status === 'done' ? ' ✓' : ''}</span>${m.pinned ? '<span class="pill pin">pinned</span>' : ''}${m.superseded_at ? '<span class="pill warn">outdated</span>' : ''}`;
+function highlight(text) {
+  const words = state.query.toLowerCase().match(/[\p{L}\p{N}_]+/gu) || [];
+  let out = esc(text);
+  for (const w of words.slice(0, 8)) out = out.replace(new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\p{L}\\p{N}_]*)`, 'giu'), '<mark>$1</mark>');
+  return out;
+}
+
+async function loadOverview() {
+  overview = await get('/api/overview');
+  const c = overview.counts;
+  $('stats').innerHTML = `<span><b>${c.memories}</b> notes</span><span><b>${c.sessions}</b> sessions</span><span><b>${c.todos}</b> open todos</span><span><b>${c.pinned}</b> pinned</span>` +
+    (c.pending ? `<span><b>${c.pending}</b> summarizing</span>` : '') +
+    (overview.usage ? `<span title="last 7 days: context threadkeeper added to Claude, and summary-model calls">~<b>${(overview.usage.injected.tokens / 1000).toFixed(1)}k</b> tokens added · <b>${overview.usage.model.calls}</b> model calls${overview.usage.saved.tokens ? ` · <b>${(overview.usage.saved.tokens / 1000).toFixed(1)}k</b> saved` : ''} (7d)</span>` : '');
+  const proj = (p) => `<button class="item" data-p="${esc(p.project)}" aria-current="${state.project === p.project}" title="${esc(p.project)}">
+      <div class="name">${esc(projName(p.project))}</div>
+      <div class="sub">${p.memories} notes${p.sessions ? ` · ${p.sessions} sessions` : ''} · ${ago(p.last)}${p.project.startsWith('claude-mem:') ? '<br>imported, attaches when you open this folder' : ''}</div></button>`;
+  const live = overview.projects.filter((p) => !p.project.startsWith('claude-mem:'));
+  const imported = overview.projects.filter((p) => p.project.startsWith('claude-mem:'));
+  $('projects').innerHTML = '<h2>Projects</h2>' +
+    `<button class="item" data-p="" aria-current="${state.project === null}"><div class="name">All projects</div><div class="sub">${c.memories} notes</div></button>` +
+    live.map(proj).join('') + (imported.length ? '<h2>Imported from claude-mem</h2>' + imported.map(proj).join('') : '') +
+    (overview.health.length ? `<h2>Needs attention</h2><div style="padding:0 16px 16px">${overview.health.map((h) => `<div class="sub" style="color:var(--${h.level === 'warn' ? 'err' : 'warn'});margin-bottom:6px">${esc(h.text)}</div>`).join('')}</div>` : '') +
+    (overview.errors.length ? `<h2>Recent errors</h2><div class="errors">${esc(overview.errors.join('\n'))}</div>` : '') +
+    `<h2>Data</h2><div class="sub" style="padding:0 16px 16px;word-break:break-all">${esc(overview.home)}<br>summaries: ${esc(overview.config.model)} · min ${overview.config.minToolCalls} tool calls or 1 edit</div>`;
+  document.querySelectorAll('#projects .item').forEach((el) => el.onclick = () => {
+    state.project = el.dataset.p || null; state.type = null; state.sel = null; state.limit = 50; persist(); refresh();
+  });
+}
+
+async function loadList() {
+  document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === state.tab)));
+  const list = $('list');
+  if (state.tab === 'sessions') {
+    const rows = await get('/api/sessions' + qs({ project: state.project }));
+    list.innerHTML = rows.length ? rows.map((s) => `
+      <button class="item" data-s="${esc(s.id)}" aria-current="${state.sel?.kind === 'session' && state.sel.id === s.id}">
+        <div>${sessionStatus(s)}<span class="sub">${ago(s.last_activity)}</span></div>
+        <div class="clip">${esc(s.summary || s.first_prompt || '(no prompt captured)')}</div>
+        <div class="sub">${state.project ? '' : esc(projName(s.project)) + ' · '}${s.prompts} prompts · ${s.tool_calls} tool calls · ${s.edits} edits · ${s.memories} notes</div>
+      </button>`).join('') : '<div class="empty">No sessions yet here. Use Claude Code and they show up live.</div>';
+    list.querySelectorAll('[data-s]').forEach((el) => el.onclick = () => { state.sel = { kind: 'session', id: el.dataset.s }; state.editing = false; refresh(); });
+    return;
+  }
+  if (state.tab === 'week') {
+    const w = await get('/api/week');
+    const ps = w.projects.filter((p) => !state.project || p.project === state.project);
+    const sec = (title, items, f) => items.length ? `<h3 class="wk-h">${title}</h3>` + items.map(f).join('') : '';
+    const note = (x) => `<button class="item wk" data-n="${x.id}"><span class="sub">${esc(x.day || '')}</span> ${esc(x.title)}</button>`;
+    list.innerHTML = ps.length ? ps.map((p) => `
+      <div class="wk-p"><div class="name" style="padding:12px 16px 2px;font-weight:600">${esc(p.name)}</div>
+      <div class="sub" style="padding:0 16px 6px">${p.sessions} session(s) · ${p.edits} edits · ${p.notes} new notes in ${w.days} days</div>
+      ${sec('Worked on', p.worked_on, (x) => `<button class="item wk" data-n="${x.id}"><span class="sub">${esc(x.day)}</span> ${esc(x.text)}</button>`)}
+      ${sec('Done', p.shipped, note)}${sec('Decided', p.decisions, note)}${sec('Learned the hard way', p.gotchas, note)}
+      ${sec('Todos closed', p.todos_done, note)}${sec('Still open', p.todos_open, note)}</div>`).join('')
+      : '<div class="empty">Nothing recorded in the last 7 days.</div>';
+    list.querySelectorAll('[data-n]').forEach((el) => el.onclick = () => { state.sel = { kind: 'note', id: Number(el.dataset.n) }; state.editing = false; refresh(); });
+    return;
+  }
+  const isTodos = state.tab === 'todos';
+  const r = await get('/api/notes' + qs({ project: state.project, type: isTodos ? 'todo' : state.type, q: state.query, done: state.done ? 1 : '', old: state.old ? 1 : '', limit: state.limit }));
+  const chips = isTodos
+    ? `<div class="chips"><button class="chip" id="showdone" aria-pressed="${state.done}">Show finished</button></div>`
+    : `<div class="chips" role="group" aria-label="Filter by type"><button class="chip" data-t="" aria-pressed="${!state.type}">all ${Object.values(r.typeCounts).reduce((a, b) => a + b, 0)}</button>` +
+      overview.types.filter((t) => r.typeCounts[t]).map((t) => `<button class="chip" data-t="${t}" aria-pressed="${state.type === t}">${t} ${r.typeCounts[t]}</button>`).join('') +
+      (overview.counts.outdated ? `<button class="chip" id="showold" aria-pressed="${state.old}">show outdated</button>` : '') + '</div>';
+  list.innerHTML = chips + (state.query ? `<div class="sub" style="padding:8px 16px">${r.total} matches for “${esc(state.query)}”</div>` : '') +
+    (r.items.length ? r.items.map((m) => `
+      <button class="item" data-n="${m.id}" aria-current="${state.sel?.kind === 'note' && state.sel.id === m.id}">
+        <div>${typePill(m)}<span class="sub">${esc(m.created_at.slice(0, 10))}${state.project ? '' : ' · ' + esc(projName(m.project))}</span></div>
+        <div class="name">${highlight(m.title)}</div>
+        <div class="sub clip">${highlight(m.body)}</div>
+      </button>`).join('') : `<div class="empty">${isTodos ? 'Nothing open. Unfinished work from your sessions shows up here and closes itself when a later session finishes it.' : 'No notes match.'}</div>`) +
+    (r.total > r.items.length ? `<button class="more" id="more">Show more (${r.total - r.items.length} left)</button>` : '');
+  list.querySelectorAll('[data-n]').forEach((el) => el.onclick = () => { state.sel = { kind: 'note', id: Number(el.dataset.n) }; state.editing = false; refresh(); });
+  list.querySelectorAll('[data-t]').forEach((el) => el.onclick = () => { state.type = el.dataset.t || null; state.limit = 50; refresh(); });
+  if ($('showdone')) $('showdone').onclick = () => { state.done = !state.done; refresh(); };
+  if ($('showold')) $('showold').onclick = () => { state.old = !state.old; refresh(); };
+  if ($('more')) $('more').onclick = () => { state.limit += 100; refresh(); };
+}
+
+function noteView(n, before, after) {
+  if (state.editing) return `
+    <form class="edit" id="editform">
+      <label for="e-title">Title</label><input type="text" id="e-title" value="${esc(n.title)}" maxlength="160" required>
+      <label for="e-type">Type</label><select id="e-type">${overview.types.map((t) => `<option ${t === n.type ? 'selected' : ''}>${t}</option>`).join('')}</select>
+      <label for="e-body">Note</label><textarea id="e-body" maxlength="8000" required>${esc(n.body)}</textarea>
+      <div class="row"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" id="e-cancel">Cancel</button></div>
+    </form>`;
+  const link = (m) => `<a href="#" data-goto="${m.id}">#${m.id}</a> ${esc(m.created_at.slice(0, 10))} [${esc(m.type)}${m.status === 'done' ? ' ✓' : ''}] ${esc(m.title)}`;
+  return `
+    <div class="sub" title="${esc(n.project)}">${esc(projName(n.project))} · #${n.id} · ${new Date(n.created_at).toLocaleString()}${n.updated_at ? ' · edited' : ''} · ${esc(n.source)}</div>
+    <div class="mem ${n.type === 'session' ? 'session' : ''}" style="margin-top:10px">
+      <div class="t">${typePill(n)}${esc(n.title)}</div>
+      <div style="white-space:pre-wrap">${esc(n.body)}</div>
+      ${n.files.length ? `<div class="files">${n.files.map(esc).join(' · ')}</div>` : ''}
+    </div>
+    <div class="row">
+      <button class="btn primary" id="a-pin" aria-pressed="${!!n.pinned}">${n.pinned ? 'Unpin' : 'Pin: always load at session start'}</button>
+      ${n.type === 'todo' ? `<button class="btn" id="a-done">${n.status === 'done' ? 'Reopen' : 'Mark done'}</button>` : ''}
+      ${n.type !== 'brief' ? `<button class="btn" id="a-old">${n.superseded_at ? 'Not outdated' : 'Mark outdated'}</button>` : ''}
+      <button class="btn" id="a-edit">Edit</button>
+      <button class="btn danger" id="a-del">Forget</button>
+      ${n.session_id ? `<button class="btn" id="a-sess">Open session</button>` : ''}
+    </div>
+    ${before.length || after.length ? `<h3>Around this note</h3><div class="around sub">${[...before.map(link), `<b>▶ ${esc(n.title)}</b>`, ...after.map(link)].join('<br>')}</div>` : ''}`;
+}
+
+async function loadDetail() {
+  const box = $('detail');
+  if (!state.sel) { box.innerHTML = '<div class="empty">Pick a note or a session. Press <kbd>/</kbd> to search.</div>'; return; }
+  if (state.sel.kind === 'note') {
+    if (state.editing && box.querySelector('#editform')) return; // don't clobber typing on refresh
+    const r = await get('/api/notes/' + state.sel.id);
+    if (r.error) { state.sel = null; box.innerHTML = '<div class="empty">That note is gone.</div>'; return; }
+    const n = r.note;
+    box.innerHTML = noteView(n, r.before, r.after);
+    const upd = async (body) => { await post('/api/notes/' + n.id, body); refresh(); };
+    if (state.editing) {
+      $('e-title').focus();
+      $('editform').onsubmit = async (e) => { e.preventDefault(); state.editing = false; await upd({ title: $('e-title').value, type: $('e-type').value, body: $('e-body').value }); };
+      $('e-cancel').onclick = () => { state.editing = false; loadDetail(); };
+      return;
+    }
+    $('a-pin').onclick = () => upd({ pinned: !n.pinned });
+    if ($('a-done')) $('a-done').onclick = () => upd({ status: n.status === 'done' ? 'open' : 'done' });
+    $('a-edit').onclick = () => { state.editing = true; loadDetail(); };
+    if ($('a-old')) $('a-old').onclick = () => upd({ outdated: !n.superseded_at });
+    $('a-del').onclick = async () => { if (confirm('Forget this note for good?')) { await post(`/api/memories/${n.id}/delete`); state.sel = null; refresh(); } };
+    if ($('a-sess')) $('a-sess').onclick = () => { state.tab = 'sessions'; state.sel = { kind: 'session', id: n.session_id }; refresh(); };
+    box.querySelectorAll('[data-goto]').forEach((a) => a.onclick = (e) => { e.preventDefault(); state.sel = { kind: 'note', id: Number(a.dataset.goto) }; refresh(); });
+    return;
+  }
+  const d = await get('/api/sessions/' + encodeURIComponent(state.sel.id));
+  if (d.error) { box.innerHTML = '<div class="empty">Session not found.</div>'; return; }
+  const s = d.session;
+  box.innerHTML = `
+    <div class="sub" title="${esc(s.project)}">${esc(projName(s.project))}</div>
+    <div class="sub">started ${new Date(s.started_at).toLocaleString()} · ${s.ended_at ? 'ended ' + new Date(s.ended_at).toLocaleString() : 'still open'}</div>
+    <div class="row">${sessionStatus(s)} <button class="btn primary" id="resum">${s.summarized === 1 ? 'Summarize again' : 'Summarize now'}</button></div>
+    <h3>Remembered (${d.memories.length})</h3>
+    ${d.memories.length ? d.memories.map((m) => `<button class="item mem ${m.type === 'session' ? 'session' : ''}" data-n="${m.id}" style="border-radius:10px">
+        <div class="t">${typePill(m)}${esc(m.title)} <span class="sub">#${m.id}</span></div><div>${esc(m.body)}</div>
+        ${m.files.length ? `<div class="files">${m.files.map(esc).join(' · ')}</div>` : ''}</button>`).join('')
+      : '<div class="sub">Nothing yet. Notes are written when a session that did real work ends, and before the context is compacted.</div>'}
+    <h3>Captured activity (${d.events.length})</h3>
+    ${d.events.map((e) => e.kind === 'prompt'
+      ? `<div class="ev prompt"><span class="k">you ›</span>${esc(e.detail)}</div>`
+      : `<div class="ev ${e.detail.startsWith('FAILED') ? 'fail' : ''}"><span class="k">${esc(e.tool)}</span>${esc(e.detail)}</div>`).join('')}`;
+  $('resum').onclick = async () => {
+    if (s.summarized === 1 && !confirm('Replace this session\'s notes with a fresh summary? Pinned notes are kept.')) return;
+    await post(`/api/sessions/${encodeURIComponent(s.id)}/summarize`); refresh();
+  };
+  box.querySelectorAll('[data-n]').forEach((el) => el.onclick = () => { state.tab = 'notes'; state.sel = { kind: 'note', id: Number(el.dataset.n) }; refresh(); });
+}
+
+let busy = false;
+async function refresh() {
+  if (busy) return; busy = true;
+  try {
+    await loadOverview(); await loadList(); await loadDetail();
+    $('tick').textContent = 'live · ' + new Date().toLocaleTimeString();
+    document.querySelector('.dot').style.background = '';
+  } catch { $('tick').textContent = 'viewer stopped'; document.querySelector('.dot').style.background = 'var(--err)'; }
+  finally { busy = false; }
+}
+document.querySelectorAll('.tab').forEach((t) => t.onclick = () => { state.tab = t.dataset.tab; state.type = null; state.limit = 50; persist(); refresh(); });
+let timer; $('q').oninput = (e) => { clearTimeout(timer); timer = setTimeout(() => { state.query = e.target.value.trim(); if (state.query) state.tab = 'notes'; state.limit = 50; refresh(); }, 250); };
+document.addEventListener('keydown', (e) => {
+  if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) { e.preventDefault(); $('q').focus(); }
+  if (e.key === 'Escape' && document.activeElement === $('q')) { $('q').value = ''; state.query = ''; refresh(); }
+});
+refresh();
+setInterval(() => { if (!document.hidden && !state.editing && document.activeElement !== $('q')) refresh(); }, 4000);
+</script>
+</body>
+</html>
