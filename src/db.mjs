@@ -147,7 +147,49 @@ const MIGRATIONS = [
   ALTER TABLE memories ADD COLUMN used_count INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE memories ADD COLUMN last_shown_at TEXT;
   `,
+  // v9 -> v10: two notes that disagree where it isn't clear which is right (e.g. a session went against a pinned rule)
+  `
+  CREATE TABLE IF NOT EXISTS conflicts (id INTEGER PRIMARY KEY, project TEXT NOT NULL, old_id INTEGER NOT NULL, new_id INTEGER,
+    why TEXT, created_at TEXT NOT NULL, resolved_at TEXT);
+  CREATE INDEX IF NOT EXISTS conflicts_open ON conflicts(project, resolved_at);
+  `,
 ];
+
+/** Settle a conflict: keep the old note, the new one, or both (they turned out not to clash). */
+export function settleConflict(d, id, keep) {
+  const c = d.prepare('SELECT * FROM conflicts WHERE id = ?').get(Number(id));
+  if (!c || c.resolved_at) return false;
+  if (keep === 'new') markSuperseded(d, null, [c.old_id], 'settled conflict');
+  else if (keep === 'old' && c.new_id) markSuperseded(d, null, [c.new_id], 'settled conflict');
+  d.prepare('UPDATE conflicts SET resolved_at = ? WHERE id = ?').run(now(), c.id);
+  return true;
+}
+
+/**
+ * The user's own past prompts that contain every word of the query (newest first). Activity is kept for
+ * keepActivityDays (default 60), so this reaches back that far; older work lives on in the notes.
+ */
+export function searchPrompts(d, { query = '', project = null, days = 60, limit = 15 } = {}) {
+  const words = (String(query).toLowerCase().match(/[\p{L}\p{N}_]{2,}/gu) || []).slice(0, 8);
+  if (!words.length) return [];
+  const since = new Date(Date.now() - Math.max(1, Number(days) || 60) * 86400000).toISOString();
+  const like = words.map(() => `lower(e.detail) LIKE ? ESCAPE '\\'`).join(' AND ');
+  return d.prepare(
+    `SELECT e.ts, e.detail, e.session_id, s.project FROM events e JOIN sessions s ON s.id = e.session_id
+     WHERE e.kind = 'prompt' AND e.ts > ? ${project ? 'AND s.project = ?' : ''} AND ${like}
+     ORDER BY e.ts DESC LIMIT ?`
+  ).all(since, ...(project ? [project] : []), ...words.map((w) => '%' + w.replace(/[\\%_]/g, (c) => '\\' + c) + '%'), Math.min(50, Number(limit) || 15));
+}
+
+/** Open conflicts in a project where both notes are still live (a note marked outdated settles it). */
+export function openConflicts(d, project, limit = 5) {
+  return d.prepare(
+    `SELECT c.id, c.why, c.created_at, o.id old_id, o.title old_title, o.body old_body, n.id new_id, n.title new_title, n.body new_body
+     FROM conflicts c JOIN memories o ON o.id = c.old_id LEFT JOIN memories n ON n.id = c.new_id
+     WHERE (? IS NULL OR c.project = ?) AND c.resolved_at IS NULL AND o.superseded_at IS NULL AND (n.id IS NULL OR n.superseded_at IS NULL)
+     ORDER BY c.id DESC LIMIT ?`
+  ).all(project, project, limit);
+}
 
 /** Search ranking: BM25 (title > tags > body), with newer notes up to 1.5x stronger over the past year. */
 export const RANK = "bm25(memories_fts, 3.0, 1.0, 1.5) * (1.0 + 0.5 * max(0.0, 1.0 - (julianday('now') - julianday(m.created_at)) / 365.0))";

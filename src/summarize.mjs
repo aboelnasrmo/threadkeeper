@@ -96,7 +96,8 @@ Reply with ONLY a JSON object, no prose:
       "tags": "6-10 other words someone might search for to find this note: synonyms, the technologies, components and concepts involved, not already in the title" }
   ],
   "resolved_todos": [ids of OPEN TODOS that this session clearly finished],
-  "outdated": [ids of EARLIER NOTES that this session proved wrong or replaced (e.g. a setting changed, a bug's real cause found)]
+  "outdated": [ids of EARLIER NOTES that this session proved wrong or replaced (e.g. a setting changed, a bug's real cause found)],
+  "conflicts": [{ "id": id of an EARLIER NOTE this session disagrees with when it is NOT clear which is right (e.g. it went against a rule or an earlier decision without saying it changed), "memory": index in "memories" of the note it disagrees with, or null, "why": "one sentence" }]
 }
 Types: decision = design choice and its reason; bugfix = what broke, root cause, fix; feature = new capability;
 refactor = restructure; discovery = how something works; gotcha = trap or non-obvious constraint; todo = unfinished work
@@ -136,8 +137,11 @@ export function parseResponse(text) {
   const ids = (v) => (Array.isArray(v) ? v.map(Number).filter(Number.isInteger) : []);
   const resolved = ids(obj.resolved_todos);
   const outdated = ids(obj.outdated);
+  const conflicts = (Array.isArray(obj.conflicts) ? obj.conflicts : []).slice(0, 4)
+    .filter((c) => c && Number.isInteger(Number(c.id)))
+    .map((c) => ({ id: Number(c.id), memory: Number.isInteger(c.memory) ? c.memory : null, why: typeof c.why === 'string' ? clip(c.why.trim(), 240) : '' }));
   if (!memories.length && !resolved.length) throw new Error('empty summary');
-  return { memories, resolved, outdated };
+  return { memories, resolved, outdated, conflicts };
 }
 
 export function callClaude(prompt, cfg, { timeout = 180_000, project = 'general' } = {}) {
@@ -198,17 +202,30 @@ export function summarizeSession(sessionId, cfg = loadConfig(), { partial = fals
       todos,
       partial,
     });
-    const { memories, resolved, outdated } = parseResponse(callClaude(prompt, cfg, { project: project }));
+    const { memories, resolved, outdated, conflicts } = parseResponse(callClaude(prompt, cfg, { project: project }));
     const relatedIds = new Set(related.map((m) => m.id));
     const todoIds = new Set(todos.map((t) => t.id));
     d.exec('BEGIN IMMEDIATE');
     try {
       let firstUid = null;
+      const newIds = [];
+      // memories[0] is the session summary added by parseResponse; the model's own list starts at index 1.
       for (const m of memories) {
         const { id } = insertMemory(d, { sessionId, project: m.everywhere ? 'general' : project, type: m.type, title: redact(m.title), body: redact(m.body), files: m.files, pinned: m.pin, tags: m.tags });
+        newIds.push(m.type === 'session' ? null : id);
         if (!firstUid && m.type !== 'session') firstUid = d.prepare('SELECT uid FROM memories WHERE id = ?').get(id)?.uid;
       }
-      markSuperseded(d, project, outdated.filter((id) => relatedIds.has(id)), firstUid || 'a later session');
+      // Rules the user pinned are never retired silently: a disagreement becomes a conflict for the user to settle.
+      const protectedNote = d.prepare(`SELECT 1 FROM memories WHERE id = ? AND pinned = 1`);
+      const asConflict = outdated.filter((id) => relatedIds.has(id) && protectedNote.get(id));
+      markSuperseded(d, project, outdated.filter((id) => relatedIds.has(id) && !asConflict.includes(id)), firstUid || 'a later session');
+      const offset = memories[0]?.type === 'session' ? 1 : 0;
+      const addConflict = d.prepare(`INSERT INTO conflicts(project, old_id, new_id, why, created_at) SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS
+        (SELECT 1 FROM conflicts WHERE old_id = ? AND coalesce(new_id, 0) = coalesce(?, 0))`);
+      for (const c of [...conflicts.filter((c) => relatedIds.has(c.id)), ...asConflict.map((id) => ({ id, memory: null, why: 'a later session treated this as no longer true' }))]) {
+        const newId = c.memory != null ? newIds[c.memory + offset] ?? null : newIds.find((x) => x) ?? null;
+        addConflict.run(project, c.id, newId, c.why || null, now(), c.id, newId);
+      }
       resolveTodos(d, project, resolved.filter((id) => todoIds.has(id)));
       d.prepare(
         `UPDATE sessions SET summarized = CASE WHEN ? THEN 0 ELSE 1 END, summarized_upto = ?, summarizing_since = NULL,

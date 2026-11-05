@@ -306,7 +306,15 @@ async function main() {
       try { d.prepare('UPDATE sessions SET branch = ? WHERE id = ?').run(gitBranch(project), sessionId); } catch {}
       const { buildContext } = await import('./context.mjs');
       const ctx = buildContext(project, cfg, { sessionId, source: input.source, notices });
-      const status = cfg.showStatus === false ? null : statusLine(d, project, ctx, cfg);
+      let status = cfg.showStatus === false ? null : statusLine(d, project, ctx, cfg);
+      // First session ever on this machine with an empty memory: say once what threadkeeper does and where to look.
+      if (!d.prepare(`SELECT 1 FROM sync_state WHERE key = 'welcomed'`).get()) {
+        d.prepare(`INSERT OR IGNORE INTO sync_state(key, value) VALUES ('welcomed', ?)`).run(now());
+        if (d.prepare('SELECT count(*) n FROM memories').get().n < 5) {
+          status = `threadkeeper is on. It remembers each project's decisions, fixes and gotchas across sessions (written when a session ends) ` +
+            `and gives Claude the useful ones next time. See them at http://localhost:${cfg.viewerPort || 37777}. Say "off the record" to keep a session out.`;
+        }
+      }
       emit('SessionStart', ctx, status);
       break;
     }

@@ -4,7 +4,7 @@ import readline from 'node:readline';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { VERSION, loadConfig, logError } from './config.mjs';
-import { openDb, projectFor, insertMemory, filesOf, resolveTodos, MEMORY_TYPES, relPath, markSuperseded, RANK } from './db.mjs';
+import { openDb, projectFor, insertMemory, filesOf, resolveTodos, MEMORY_TYPES, relPath, markSuperseded, RANK, settleConflict, searchPrompts } from './db.mjs';
 import { redact, clip } from './redact.mjs';
 
 const KINDS = MEMORY_TYPES.filter((t) => t !== 'session' && t !== 'brief');
@@ -85,6 +85,28 @@ const TOOLS = [
       type: 'object',
       properties: { ids: { type: 'array', items: { type: 'number' } }, replaced_by: { type: 'number' } },
       required: ['ids'],
+    },
+  },
+  {
+    name: 'settle_conflict',
+    description:
+      'Settle two notes that disagree (listed at session start under "Notes that disagree"). Ask the user which is right first, ' +
+      'unless the code already shows it. keep: "new" retires the older note, "old" retires the newer one, "both" if they do not really clash.',
+    inputSchema: { type: 'object', properties: { id: { type: 'number', description: 'conflict id' }, keep: { type: 'string', enum: ['old', 'new', 'both'] } }, required: ['id', 'keep'] },
+  },
+  {
+    name: 'my_prompts',
+    description:
+      'Search what the user themselves asked or said in past sessions ("what did I say about X last week"), newest first, with dates. ' +
+      'Covers roughly the last 60 days of activity; for older work use `search` on the notes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Words that must all appear in the prompt' },
+        days: { type: 'number', description: 'How far back (default 60)' },
+        all_projects: { type: 'boolean' },
+      },
+      required: ['query'],
     },
   },
   {
@@ -354,6 +376,12 @@ export async function callTool(name, args, sessionProject) {
     case 'save_chat': return saveChat(args, project || 'general');
     case 'resolve_todo': return project ? resolveTodo(args, project) : resolveTodoAny(args);
     case 'mark_outdated': return markOutdated(args, project);
+    case 'settle_conflict': return settleConflict(openDb(), args.id, args.keep) ? `Settled: kept ${args.keep === 'both' ? 'both notes' : 'the ' + args.keep + ' note'}.` : 'No open conflict with that id.';
+    case 'my_prompts': {
+      const rows = searchPrompts(openDb(), { query: args.query, days: args.days, project: args.all_projects || !project ? null : project });
+      if (!rows.length) return 'None of your prompts in that period contain all those words.';
+      return rows.map((r) => `${r.ts.slice(0, 16).replace('T', ' ')}${args.all_projects || !project ? ` (${path.basename(r.project)})` : ''}: ${clip(r.detail.replace(/\s+/g, ' '), 300)}`).join('\n');
+    }
     case 'brief': return briefTool(args, project);
     default: return null;
   }

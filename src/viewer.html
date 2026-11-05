@@ -155,6 +155,8 @@
   .utab td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); }
   .utab tr[data-p] { cursor: pointer; } .utab tbody tr:hover td { color: var(--accent); }
   .utab th:not(:first-child), .utab td:not(:first-child) { text-align: right; }
+  .conf { border-top: 1px solid var(--line); padding: 10px 0; } .conf:first-of-type { border-top: 0; }
+  .cpair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; } .cpair .link-row { border-bottom: 0; }
   .brief { white-space: pre-wrap; font-size: 13px; max-height: 280px; overflow: auto; }
 
   .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 10px; font-size: 13px; opacity: 0; transition: .2s; pointer-events: none; z-index: 10; }
@@ -187,7 +189,7 @@
   <div class="search">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
     <label class="sr" for="q">Search notes</label>
-    <input type="search" id="q" placeholder="Search notes…  ( / )" autocomplete="off">
+    <input type="search" id="q" placeholder="Search notes, or your prompts in Sessions…  ( / )" autocomplete="off">
   </div>
   <div class="stats" id="stats" aria-live="polite"></div>
   <div class="hdr-right">
@@ -334,13 +336,13 @@ async function loadList() {
   const list = $('list');
   const cur = (kind, id) => state.sel?.kind === kind && state.sel.id === id;
   if (state.tab === 'sessions') {
-    const rows = await get('/api/sessions' + qs({ project: state.project }));
-    setHTML(list, rows.length ? rows.map((s) => `
+    const rows = await get('/api/sessions' + qs({ project: state.project, q: state.query }));
+    setHTML(list, (state.query ? `<div class="sub" style="padding:8px 16px">${rows.length} session(s) where you wrote “${esc(state.query)}”</div>` : '') + (rows.length ? rows.map((s) => `
       <button class="item" data-s="${esc(s.id)}" aria-current="${cur('session', s.id)}">
         <div>${sessionStatus(s)}<span class="sub">${ago(s.last_activity)}</span></div>
-        <div class="clip">${esc(s.summary || s.first_prompt || '(no prompt captured)')}</div>
+        <div class="clip">${s.match ? '<span class="sub">you: </span>' + highlight(s.match) : esc(s.summary || s.first_prompt || '(no prompt captured)')}</div>
         <div class="sub">${state.project ? '' : esc(projName(s.project)) + ' · '}${s.prompts} prompts · ${s.tool_calls} tool calls · ${s.edits} edits · ${s.memories} notes</div>
-      </button>`).join('') : '<div class="empty">No sessions yet here. Use Claude Code and they show up live.</div>');
+      </button>`).join('') : `<div class="empty">${state.query ? 'None of your prompts contain all those words (prompts are kept for 60 days; older work is in the notes).' : 'No sessions yet here. Use Claude Code and they show up live.'}</div>`));
     return;
   }
   if (state.tab === 'week') {
@@ -348,13 +350,13 @@ async function loadList() {
     const ps = w.projects.filter((p) => !state.project || p.project === state.project);
     const sec = (title, items, f) => items.length ? `<h3 class="wk-h">${title}</h3>` + items.map(f).join('') : '';
     const note = (x) => `<button class="item wk" data-n="${x.id}" aria-current="${cur('note', x.id)}"><span class="sub">${esc(x.day || '')}</span> ${esc(x.title)}</button>`;
-    setHTML(list, ps.length ? ps.map((p) => `
+    setHTML(list, (w.savings ? `<div class="sub" style="padding:10px 16px;border-bottom:1px solid var(--line)">${esc(w.savings)}</div>` : '') + (ps.length ? ps.map((p) => `
       <div class="wk-p"><div class="name" style="padding:14px 16px 2px">${esc(p.name)}</div>
       <div class="sub" style="padding:0 16px 6px">${p.sessions} session(s) · ${p.edits} edits · ${p.notes} new notes in ${w.days} days</div>
       ${sec('Worked on', p.worked_on, (x) => `<button class="item wk" data-n="${x.id}" aria-current="${cur('note', x.id)}"><span class="sub">${esc(x.day)}</span> ${esc(x.text)}</button>`)}
       ${sec('Done', p.shipped, note)}${sec('Decided', p.decisions, note)}${sec('Learned the hard way', p.gotchas, note)}
       ${sec('Todos closed', p.todos_done, note)}${sec('Still open', p.todos_open, note)}</div>`).join('')
-      : '<div class="empty">Nothing recorded in the last 7 days.</div>');
+      : '<div class="empty">Nothing recorded in the last 7 days.</div>'));
     return;
   }
   const isTodos = state.tab === 'todos';
@@ -476,6 +478,13 @@ async function homeView() {
     </div>
     <div class="card"><div class="sec-h" style="margin:0 0 6px">Last 30 days · ${notes30} notes from ${sess30} sessions</div>${chartSvg(h.activity)}
       <div class="legend"><span><i style="background:var(--accent)"></i>notes written</span><span><i style="background:var(--muted);opacity:.5"></i>days with sessions</span></div></div>
+    ${h.conflicts.length ? `<div class="card" style="border-color:var(--warn)"><div class="sec-h" style="margin:0 0 6px;color:var(--warn)">Notes that disagree (${h.conflicts.length})</div>
+      <div class="sub" style="margin-bottom:8px">A later session went against an earlier note, and it isn't clear which is right. Claude sees these at session start until you settle them.</div>
+      ${h.conflicts.map((c) => `<div class="conf"><div class="cpair">
+          <button class="link-row" data-n="${c.old_id}"><span class="sub">older #${c.old_id}</span><div class="name" style="font-weight:500">${esc(c.old_title)}</div></button>
+          ${c.new_id ? `<button class="link-row" data-n="${c.new_id}"><span class="sub">newer #${c.new_id}</span><div class="name" style="font-weight:500">${esc(c.new_title)}</div></button>` : ''}</div>
+        ${c.why ? `<div class="sub">${esc(c.why)}</div>` : ''}
+        <div class="row" style="margin-top:6px"><button class="btn" data-conf="${c.id}" data-keep="old">Keep older</button>${c.new_id ? `<button class="btn" data-conf="${c.id}" data-keep="new">Keep newer</button>` : `<button class="btn" data-conf="${c.id}" data-keep="new">Older is wrong</button>`}<button class="btn" data-conf="${c.id}" data-keep="both">Both are fine</button></div></div>`).join('')}</div>` : ''}
     ${h.brief ? `<div class="card"><div class="sec-h" style="margin:0 0 6px">Project brief <span style="text-transform:none;letter-spacing:0">· what Claude sees first · ${ago(h.brief.created_at)}</span></div><div class="brief">${fmtBody(h.brief.body)}</div></div>` : ''}
     <div class="grid2">
       <div class="card"><div class="sec-h" style="margin:0 0 6px">Latest notes</div>${h.recent.length ? h.recent.map(row).join('') : '<div class="sub">None yet.</div>'}</div>
@@ -595,6 +604,7 @@ $('detail').addEventListener('click', async (e) => {
     if (t.dataset.go === 'stale') { state.tab = 'notes'; state.stale = true; } else state.tab = t.dataset.go;
     state.type = null; persist(); return refresh();
   }
+  if (t.dataset.conf) { await post('/api/conflicts/' + t.dataset.conf, { keep: t.dataset.keep }); toast('Settled'); $('detail')._html = null; return refresh(); }
   if (t.dataset.evf) { state.evFilter = t.dataset.evf; return loadDetail(); }
   const n = current?.n;
   switch (t.id) {
@@ -648,7 +658,7 @@ $('pausedlg').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-pause]'); if (!b) return;
   $('pausedlg').close(); await post('/api/pause', { hours: Number(b.dataset.pause) }); toast('Memory paused'); refresh();
 });
-let timer; $('q').oninput = (e) => { clearTimeout(timer); timer = setTimeout(() => { state.query = e.target.value.trim(); state.smart = false; if (state.query) state.tab = 'notes'; state.limit = 50; refresh(); }, 250); };
+let timer; $('q').oninput = (e) => { clearTimeout(timer); timer = setTimeout(() => { state.query = e.target.value.trim(); state.smart = false; if (state.query && state.tab !== 'sessions') state.tab = 'notes'; state.limit = 50; refresh(); }, 250); };
 
 function moveSel(step) {
   const items = [...$('list').querySelectorAll('[data-n],[data-s]')]; if (!items.length) return;

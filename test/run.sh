@@ -537,6 +537,30 @@ grep -q "ESSENTIALMARK" "$PROJ/.claude/team-memory.md" || fail "team memory has 
 grep -qE "sk-[A-Za-z0-9]{10}|ghp_[A-Za-z0-9]{10}" "$PROJ/.claude/team-memory.md" && fail "team memory must not carry secrets"
 node --no-warnings "$ROOT/src/cli.mjs" share "$PROJ" --link >/dev/null
 [[ "$(grep -c '@.claude/team-memory.md' "$PROJ/CLAUDE.md")" == 1 ]] || fail "CLAUDE.md import added once"
+echo "22. conflicts with pinned rules, searching your own prompts, welcome, weekly savings"
+CF="$(mktemp -d)"; mkdir -p "$CF/.git" "$CF/src"
+PIN_ID="$(CLAUDE_PROJECT_DIR="$CF" bash -c 'printf "%s\n" "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}" "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"remember\",\"arguments\":{\"title\":\"OLDFACT always use tabs\",\"body\":\"pinned rule\",\"pin\":true,\"files\":[\"src/fmt.ts\"]}}}" | node --no-warnings '"$ROOT"'/src/mcp.mjs' | grep -o 'Saved as #[0-9]*' | grep -o '[0-9]*')"
+[[ -n "$PIN_ID" && "$(q "select pinned from memories where id=$PIN_ID")" == '[{"pinned":1}]' ]] || fail "pinned rule saved"
+jc() { node -e 'console.log(JSON.stringify(Object.assign({session_id:process.argv[1],cwd:process.argv[2]},JSON.parse(process.argv[3]))))' "$S" "$CF/src" "$1"; }
+S=sess-80; jc '{}' | $H SessionStart >/dev/null
+jc '{"prompt":"reformat fmt with spaces from now on"}' | $H UserPromptSubmit >/dev/null
+jc '{"tool_name":"Edit","tool_input":{"file_path":"'"$CF"'/src/fmt.ts","new_string":"x"}}' | $H PostToolUse
+jc '{}' | $H SessionEnd
+waitfor "select summarized from sessions where id='sess-80'" '[{"summarized":1}]'
+[[ "$(q "select superseded_at is null live from memories where id=$PIN_ID")" == '[{"live":1}]' ]] || fail "a pinned rule is never retired silently"
+[[ "$(q "select count(*) n from conflicts where old_id=$PIN_ID and resolved_at is null")" == '[{"n":1}]' ]] || fail "conflict recorded"
+CFC="$(S=sess-81 jc '{}' | $H SessionStart)"
+[[ "$CFC" == *"Notes that disagree"*"OLDFACT always use tabs"* ]] || fail "conflict shown at start: ${CFC:0:800}"
+CID="$(q "select id from conflicts where old_id=$PIN_ID" | grep -o '[0-9]*')"
+[[ "$(CLAUDE_PROJECT_DIR="$CF" mcp "$(call settle_conflict '{"id":'"$CID"',"keep":"old"}')")" == *"Settled"* ]] || fail "settle conflict"
+[[ "$(S=sess-82 jc '{}' | $H SessionStart)" == *"Notes that disagree"* ]] && fail "settled conflict no longer shown"
+[[ "$(mcp "$(call my_prompts '{"query":"login validation","all_projects":true}')")" == *"fix the login validation"* ]] || fail "my_prompts"
+[[ "$(curl -s 'localhost:37791/api/sessions?q=login%20validation')" == *'"match":"fix the login validation'* ]] || fail "viewer: sessions where you wrote it"
+[[ "$(curl -s 'localhost:37791/api/home')" == *'"conflicts":[]'* ]] || fail "viewer: settled conflicts gone"
+WH="$(mktemp -d)"; echo '{"autoViewer":false}' > "$WH/settings.json"
+[[ "$(THREADKEEPER_HOME="$WH" node -e 'console.log(JSON.stringify({session_id:"w1",cwd:process.argv[1]}))' "$CF/src" | THREADKEEPER_HOME="$WH" $H SessionStart)" == *"threadkeeper is on."* ]] || fail "welcome on first session"
+[[ "$(THREADKEEPER_HOME="$WH" node -e 'console.log(JSON.stringify({session_id:"w2",cwd:process.argv[1]}))' "$CF/src" | THREADKEEPER_HOME="$WH" $H SessionStart)" == *"threadkeeper is on."* ]] && fail "welcome only once"
+[[ "$(node --no-warnings "$ROOT/src/cli.mjs" week)" == *"Memory cost and savings: ~"*"tokens saved by"* ]] || fail "weekly savings line"
 # Every release names its version in the README and the changelog.
 V="$(node -p "require('$ROOT/package.json').version")"
 [[ "$(node -p "require('$ROOT/.claude-plugin/plugin.json').version")" == "$V" ]] || fail "plugin.json version"

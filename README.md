@@ -1,6 +1,6 @@
 # threadkeeper
 
-**Version 0.14.0** · [Changelog](CHANGELOG.md) · [![tests](https://github.com/aboelnasrmo/threadkeeper/actions/workflows/test.yml/badge.svg)](https://github.com/aboelnasrmo/threadkeeper/actions/workflows/test.yml) on macOS, Windows and Linux
+**Version 0.15.0** · [Changelog](CHANGELOG.md) · [![tests](https://github.com/aboelnasrmo/threadkeeper/actions/workflows/test.yml/badge.svg)](https://github.com/aboelnasrmo/threadkeeper/actions/workflows/test.yml) on macOS, Windows and Linux
 
 Personal, local-only memory for Claude Code. Built so Claude never loses its place: not after a long session, not after the context is compacted, not next week. No account, no hosted service, no extra dependencies. Inspired by [claude-mem](https://github.com/thedotmack/claude-mem); written from scratch to be small, local-only and token-lean.
 
@@ -72,6 +72,7 @@ flowchart LR
 | Every day | A backup of the database is saved in `~/.threadkeeper/backups` (last 7 kept). `restore` lists them and brings one back. |
 | You want to see your week | The viewer's **This week** tab (or `week`) lists per project what you worked on, what got done, decisions, hard-won lessons and todos. It is never loaded into Claude, so it costs no tokens. |
 | Later work finishes a todo | The summarizer sees the open todos and closes the ones that got done. |
+| A session goes against an earlier note | When it's clear the old note is wrong, it is marked outdated. When it isn't clear (or the old note is a rule you pinned, which is never retired silently), both notes are flagged as **notes that disagree**: Claude sees them at session start and asks you, and the viewer's overview lets you keep the older, the newer, or both. |
 | You say "off the record" | That session is kept out of memory: what was captured so far is deleted and nothing more is saved or synced (memory still loads). "Back on the record" undoes it. To stop recording everything for a while, use **Pause** in the viewer or `pause [hours]` / `resume`. |
 | Notes are recalled | threadkeeper learns which recalled notes Claude actually uses (opens them, mentions their `#id`, or works on their files). A note shown 4 times and never used stops loading by itself for 30 days (pinned notes always load). It stays searchable, so nothing is lost and context gets leaner. The viewer shows the share of recalled notes used. |
 | You want teammates' Claude to know the project | `share --link` (or **Share with team** in the viewer) writes the brief's essentials, decisions and gotchas to `.claude/team-memory.md` and imports it from `CLAUDE.md`. Teammates get it from the repo, even without threadkeeper. It refreshes itself daily. |
@@ -80,7 +81,7 @@ Search matches by meaning without a vector database: every note gets 6-10 relate
 
 At session start you see one line, like `threadkeeper: 1,328 notes for my-app · loaded brief + ~750 tokens · http://localhost:37777`, so you know memory loaded. A bundled `memory` skill tells Claude when to search, when to read the full brief, and how to retire notes it proves wrong.
 
-Claude also gets tools: `search` (when exact words find little, it asks the summary model for related terms, so "database" also finds PostgreSQL notes), `get`, `timeline` (what happened around a note), `remember` (save something now; say "remember that…", or "remember and pin…" for rules that must load every session), `brief`, `mark_outdated`, and `resolve_todo`.
+Claude also gets tools: `search` (when exact words find little, it asks the summary model for related terms, so "database" also finds PostgreSQL notes), `get`, `timeline` (what happened around a note), `remember` (save something now; say "remember that…", or "remember and pin…" for rules that must load every session), `brief`, `mark_outdated`, `resolve_todo`, `my_prompts` ("what did I say about X last week": searches your own past prompts), and `settle_conflict`.
 
 Repeated notes are merged instead of piling up: a new note with the same title and type as a live one updates it.
 
@@ -91,6 +92,9 @@ Starts by itself with Claude Code at http://localhost:37777 and only answers on 
 - **Overview** (click the logo): notes, sessions, todos and tokens at a glance (per project too: tokens added, tokens saved by skipped re-reads, summary-model calls), a 30-day activity chart, what kinds of notes you have, the latest notes, and the project brief Claude sees first.
 - **Browse and search** every project (including imported claude-mem history). Notes are colour-coded by type, and search highlights matches (press `/`).
 - **Keep memory accurate**: pin notes so they always load, edit, mark outdated or forget them, close todos, and see notes whose files changed a lot ("needs a check"). **Select** several notes to pin, mark outdated or forget them at once.
+- **Search your own words**: in the Sessions tab, the search box finds the sessions where you wrote something (last 60 days).
+- **Settle disagreements**: notes that contradict each other show on the overview with "Keep older", "Keep newer" or "Both are fine".
+- **This week** starts with one line on what memory cost and saved (tokens added, tokens saved, summary calls, share of recalled notes Claude used).
 - **Search by meaning**: when words find little, one click asks the summary model for related terms (cached), as Claude's own search does.
 - **Export** a project's notes as one Markdown file, or **share** the key ones with your team.
 - **Pause** recording for an hour, a day or until you resume; make a single session private after the fact.

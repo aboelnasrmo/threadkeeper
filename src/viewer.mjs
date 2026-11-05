@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOME, loadConfig, VERSION } from './config.mjs';
-import { openDb, filesOf, resolveTodos, updateMemory, MEMORY_TYPES, markSuperseded, usageSummary, usageByProject, RANK } from './db.mjs';
+import { openDb, filesOf, resolveTodos, updateMemory, MEMORY_TYPES, markSuperseded, usageSummary, usageByProject, RANK, openConflicts, settleConflict, searchPrompts } from './db.mjs';
 import { healthProblems } from './health.mjs';
 import { ftsQuery, expandQuery, loadHelpers } from './mcp.mjs';
 import { spawnSummarizer } from './hook.mjs';
@@ -129,6 +129,7 @@ async function api(url, method, req) {
       todos: d.prepare(`SELECT id, title, created_at FROM memories ${where} ${where ? 'AND' : 'WHERE'} type = 'todo' AND status = 'open' AND superseded_at IS NULL ORDER BY id DESC LIMIT 6`).all(...pa),
       usage: usageSummary(7, project),
       recall: (await import('./learn.mjs')).recallStats(project, d),
+      conflicts: openConflicts(d, project, 10),
       usageByProject: project ? [] : usageByProject(7),
       stale: d.prepare(`SELECT count(*) n FROM memories ${where} ${where ? 'AND' : 'WHERE'} stale_at IS NOT NULL AND superseded_at IS NULL`).get(...pa).n,
     }];
@@ -167,13 +168,22 @@ async function api(url, method, req) {
   }
   if (method === 'GET' && p === '/api/sessions') {
     const project = q('project');
-    return [200, d.prepare(
+    // With a query: the sessions where you said those words (your own prompts), newest first.
+    let match = null;
+    if (q('q')) {
+      match = new Map();
+      for (const h of searchPrompts(d, { query: q('q'), project, days: 3650, limit: 50 })) if (!match.has(h.session_id)) match.set(h.session_id, h.detail);
+      if (!match.size) return [200, []];
+    }
+    const rows = d.prepare(
       `SELECT s.*, (SELECT count(*) FROM memories m WHERE m.session_id = s.id) memories,
          (SELECT body FROM memories m WHERE m.session_id = s.id AND m.type = 'session' ORDER BY id DESC LIMIT 1) summary,
          (SELECT detail FROM events e WHERE e.session_id = s.id AND e.kind = 'prompt' ORDER BY id LIMIT 1) first_prompt,
          EXISTS (SELECT 1 FROM sync_state WHERE key = 'private:' || s.id) private
-       FROM sessions s WHERE ((s.prompts + s.tool_calls) > 0 OR EXISTS (SELECT 1 FROM sync_state WHERE key = 'private:' || s.id)) ${project ? 'AND s.project = ?' : ''} ORDER BY s.last_activity DESC LIMIT 100`
-    ).all(...(project ? [project] : []))];
+       FROM sessions s WHERE ((s.prompts + s.tool_calls) > 0 OR EXISTS (SELECT 1 FROM sync_state WHERE key = 'private:' || s.id)) ${project ? 'AND s.project = ?' : ''}
+         ${match ? `AND s.id IN (${[...match.keys()].map(() => '?').join(',')})` : ''} ORDER BY s.last_activity DESC LIMIT 100`
+    ).all(...(project ? [project] : []), ...(match ? match.keys() : []));
+    return [200, match ? rows.map((r) => ({ ...r, match: match.get(r.id) })) : rows];
   }
   if (method === 'GET' && (m = p.match(/^\/api\/sessions\/([\w.-]+)$/))) {
     const s = d.prepare('SELECT * FROM sessions WHERE id = ?').get(m[1]);
@@ -215,6 +225,11 @@ async function api(url, method, req) {
       else return [400, { error: 'unknown action' }];
     }
     return [200, { ok: true, changed: n }];
+  }
+  if (method === 'POST' && (m = p.match(/^\/api\/conflicts\/(\d+)$/))) {
+    const body = await readJson(req);
+    if (!['old', 'new', 'both'].includes(body.keep)) return [400, { error: 'keep must be old, new or both' }];
+    return [200, { ok: settleConflict(d, Number(m[1]), body.keep) }];
   }
   if (method === 'POST' && p === '/api/share') {
     const body = await readJson(req);

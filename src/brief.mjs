@@ -158,7 +158,14 @@ export async function refreshBrief(project, cfg = loadConfig()) {
       // A brief from another machine may exist too: keep only the one just written.
       d.prepare(`UPDATE memories SET superseded_at = ?, superseded_by = ?, updated_at = ? WHERE project = ? AND type = 'brief' AND uid != ? AND superseded_at IS NULL`)
         .run(now(), uid, now(), project, uid);
-      markSuperseded(d, project, out.outdated.filter((id) => ids.has(id)), 'project brief');
+      // Pinned rules are the user's own instructions: never retired silently, flagged as a conflict instead.
+      const pinned = new Set(d.prepare(`SELECT id FROM memories WHERE project = ? AND pinned = 1`).all(project).map((r) => r.id));
+      const hit = out.outdated.filter((id) => ids.has(id));
+      markSuperseded(d, project, hit.filter((id) => !pinned.has(id)), 'project brief');
+      for (const id of hit.filter((id) => pinned.has(id))) {
+        d.prepare(`INSERT INTO conflicts(project, old_id, new_id, why, created_at) SELECT ?, ?, NULL, ?, ? WHERE NOT EXISTS (SELECT 1 FROM conflicts WHERE old_id = ? AND new_id IS NULL)`)
+          .run(project, id, 'the project brief found this pinned rule no longer matches the project', now(), id);
+      }
       d.exec('COMMIT');
     } catch (e) { d.exec('ROLLBACK'); throw e; }
     if (cfg.syncDir) import('./sync.mjs').then((m) => m.runSync(cfg, { force: true })).catch((e) => logError('sync', e));

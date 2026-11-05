@@ -2,6 +2,12 @@
 
 Every release, newest first. The version is also shown at the top of the README and by `cli.mjs doctor`.
 
+## 0.15.0 (2026-11-05)
+- **Notes that disagree**: when a session goes against an earlier note and it isn't clear which is right, both are flagged instead of one being dropped silently. Rules you pinned are never retired silently anymore (by summaries or the brief). Claude sees open disagreements at session start and settles them with you (`settle_conflict`); the viewer's overview has Keep older / Keep newer / Both are fine.
+- **Search your own past prompts**: new `my_prompts` tool ("what did I say about X last week"), and the viewer's Sessions tab search finds the sessions where you wrote something.
+- **Welcome**: a new user's first session shows one line on what threadkeeper does and where the viewer is.
+- **Weekly savings line**: "This week" (and `week`) starts with tokens added, tokens saved, summary calls and the share of recalled notes Claude used.
+
 ## 0.14.0 (2026-11-05)
 - **Off the record**: say "off the record" and that session is kept out of memory (what was captured so far is deleted; nothing is saved or synced). "Back on the record" undoes it. **Pause** everything for 1, 4 or 24 hours or until you resume, from the viewer or with `pause` / `resume`. A session can also be made private afterwards in the viewer.
 - **Learns what Claude uses**: every recalled note is checked at session end (opened, mentioned by `#id`, or its files worked on). Notes shown 4 times and never used stop loading by themselves for 30 days; they stay searchable. The viewer and `usage` show the share of recalled notes used.

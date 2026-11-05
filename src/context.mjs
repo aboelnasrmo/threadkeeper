@@ -1,6 +1,6 @@
 // Text injected into Claude's context: at session start, and when Claude opens a file it has history on.
 import path from 'node:path';
-import { openDb, openTodos, relPath, filesOf, RANK } from './db.mjs';
+import { openDb, openTodos, relPath, filesOf, RANK, openConflicts } from './db.mjs';
 import { ignored } from './learn.mjs';
 
 const ICON = { decision: '⚖', bugfix: '●', feature: '◆', refactor: '↻', discovery: '○', gotcha: '⚠', todo: '☐', note: '·' };
@@ -116,7 +116,8 @@ export function buildContext(project, cfg, { sessionId, source, notices = [] } =
   const brief = cfg.brief === false ? null : d.prepare(
     `SELECT * FROM memories WHERE project = ? AND type = 'brief' AND superseded_at IS NULL ORDER BY coalesce(updated_at, created_at) DESC LIMIT 1`
   ).get(project);
-  if (!sessions.length && !todos.length && !staleTodos && !prefs.length && !manual.length && !loose.length && !current && !brief && !notices.length) return '';
+  const conflicts = openConflicts(d, project, 3);
+  if (!sessions.length && !todos.length && !staleTodos && !prefs.length && !manual.length && !loose.length && !current && !brief && !notices.length && !conflicts.length) return '';
 
   const out = [
     `# threadkeeper: your notes from earlier sessions in ${path.basename(project)}`,
@@ -134,6 +135,13 @@ export function buildContext(project, cfg, { sessionId, source, notices = [] } =
     for (const m of prefs) { if (!push(`- ${m.title}: ${short(m.body.replace(/\s+/g, ' '), 160)}`)) break; shown.push(m.id); }
   }
   if (brief) push(briefForContext(brief, cfg));
+  if (conflicts.length) {
+    push('\n## Notes that disagree (ask the user which is right when it matters for the work, then settle it with `settle_conflict`)');
+    for (const c of conflicts) {
+      push(`- conflict ${c.id}: older #${c.old_id} "${c.old_title}": ${short(c.old_body.replace(/\s+/g, ' '), 140)}` +
+        (c.new_id ? ` | newer #${c.new_id} "${c.new_title}": ${short(c.new_body.replace(/\s+/g, ' '), 140)}` : '') + (c.why ? ` (${short(c.why, 140)})` : ''));
+    }
+  }
 
   if (todos.length) {
     push('\n## Open todos');
