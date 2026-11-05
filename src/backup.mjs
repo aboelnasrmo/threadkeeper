@@ -18,12 +18,13 @@ export function backupDue(d = openDb()) {
 /** Write today's backup (a consistent snapshot, safe while hooks are writing) and drop old ones. Returns its path. */
 export function backup() {
   const d = openDb();
-  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  fs.mkdirSync(BACKUP_DIR, { recursive: true, mode: 0o700 });
   const file = path.join(BACKUP_DIR, `memory-${now().slice(0, 10)}.db`);
   const tmp = file + '.tmp';
   fs.rmSync(tmp, { force: true });
   d.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
   fs.renameSync(tmp, file);
+  if (process.platform !== 'win32') { try { fs.chmodSync(file, 0o600); } catch {} }
   d.prepare(`INSERT INTO sync_state(key, value) VALUES ('last_backup', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(now());
   const all = listBackups();
   for (const b of all.slice(KEEP)) fs.rmSync(b.path, { force: true });

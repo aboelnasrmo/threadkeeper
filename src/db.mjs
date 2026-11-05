@@ -168,8 +168,13 @@ export function titleKey(title) {
 
 export function openDb() {
   if (db) return db;
-  fs.mkdirSync(HOME, { recursive: true });
+  fs.mkdirSync(HOME, { recursive: true, mode: 0o700 });
+  // Notes can hold project details: keep the folder and database readable by this user only.
+  if (process.platform !== 'win32') { try { fs.chmodSync(HOME, 0o700); } catch {} }
   db = new DatabaseSync(path.join(HOME, 'memory.db'));
+  if (process.platform !== 'win32') {
+    for (const f of ['memory.db', 'memory.db-wal', 'memory.db-shm']) { try { fs.chmodSync(path.join(HOME, f), 0o600); } catch {} }
+  }
   // busy_timeout must come first so every later statement waits for other hook processes instead of failing.
   db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
   if (db.prepare('PRAGMA journal_mode').get().journal_mode !== 'wal') db.exec('PRAGMA journal_mode = WAL');

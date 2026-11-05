@@ -463,6 +463,7 @@ j '{"prompt":"in all my projects never push without asking me"}' | $H UserPrompt
 for i in 1 2 3 4 5; do j '{"tool_name":"Bash","tool_input":{"command":"git status '$i'"}}' | $H PostToolUse; done
 j '{"reason":"exit"}' | $H SessionEnd
 waitfor "select project from memories where title='Never push without asking'" '[{"project":"general"}]'
+[[ "$(stat -c %a "$THREADKEEPER_HOME")" == 700 && "$(stat -c %a "$THREADKEEPER_HOME/memory.db")" == 600 ]] || fail "data folder must be private"
 echo "13. fuzz: redaction, search queries, de-duplication"
 THREADKEEPER_HOME="$(mktemp -d)" node --no-warnings "$ROOT/test/fuzz.mjs" 1500 || fail "fuzz"
 
