@@ -1,6 +1,6 @@
 # threadkeeper
 
-**Version 0.16.0** · [Changelog](CHANGELOG.md) · [![tests](https://github.com/aboelnasrmo/threadkeeper/actions/workflows/test.yml/badge.svg)](https://github.com/aboelnasrmo/threadkeeper/actions/workflows/test.yml) on macOS, Windows and Linux
+**Version 0.17.0** · [Changelog](CHANGELOG.md) · [![tests](https://github.com/aboelnasrmo/threadkeeper/actions/workflows/test.yml/badge.svg)](https://github.com/aboelnasrmo/threadkeeper/actions/workflows/test.yml) on macOS, Windows and Linux
 
 Personal, local-only memory for Claude Code. Built so Claude never loses its place: not after a long session, not after the context is compacted, not next week. No account, no hosted service, no extra dependencies. Inspired by [claude-mem](https://github.com/thedotmack/claude-mem); written from scratch to be small, local-only and token-lean.
 
@@ -144,7 +144,9 @@ threadkeeper's fixed cost per session is small: its tool definitions take about 
 
 It also never says the same thing twice: a note loaded at session start is not repeated when Claude opens a related file or you mention its topic, and short replies ("ok", "go on") trigger no recall. A `--resume`d session gets only what changed since it was last active (its old conversation is already back), and after compaction only the brief, rules, todos and "this session so far" come back. The summary model gets a compressed log (file reads and searches counted, not listed; repeated commands merged), about a third smaller. `node src/cli.mjs usage` (and the viewer header) shows what threadkeeper actually cost over the last 7 days.
 
-**Re-read guard.** The biggest token cost in long sessions is Claude reading the same file again. When Claude asks to re-read a file (3 KB or more), or a large slice of one, that it already read in full this session, that hasn't changed since and hasn't been compacted away, threadkeeper stops that one read and tells Claude the content is still above. If Claude really needs it (a subagent, or after a summary), the very next attempt goes through. Partial reads and subagents are never stopped. Turn it off with `"rereadGuard": false`. Savings show in `usage`. Measured on a 600-note project: about 750 tokens at session start (the brief's short Essentials section loads; the full page is one `brief` call away), about 110 per matching prompt and 140 per newly opened file with history. Raise `contextMaxChars` and friends in settings if you'd rather spend more.
+**Re-read guard.** The biggest token cost in long sessions is Claude reading the same file again. When Claude asks to re-read a file (3 KB or more), or a large slice of one, that it already read in full this session, that hasn't changed since and hasn't been compacted away, threadkeeper stops that one read and tells Claude the content is still above. If Claude really needs it (a subagent, or after a summary), the very next attempt goes through. Partial reads and subagents are never stopped. Turn it off with `"rereadGuard": false`.
+
+**Noise and repeat-search guards.** The first full read of a lockfile, minified or generated file, build output or any file over 80 KB is stopped with a hint to Grep it or read a slice; the same Grep/Glob run again with nothing edited or run since is stopped once. Both give way on the next attempt, so Claude is never blocked. `tokens` (and the "Where tokens go" card in the viewer) shows the biggest costs of the work itself, such as big CLAUDE.md files, files read again and again, and compactions, with tips to cut them. Savings show in `usage`. Measured on a 600-note project: about 750 tokens at session start (the brief's short Essentials section loads; the full page is one `brief` call away), about 110 per matching prompt and 140 per newly opened file with history. Raise `contextMaxChars` and friends in settings if you'd rather spend more.
 
 ## Troubleshooting by OS
 
@@ -184,6 +186,7 @@ node $M brief [--refresh]   # show or rebuild the project brief
 node $M recover [--all] [N] # rebuild sessions threadkeeper missed from Claude Code transcripts
 node $M import-claude-memory # bring in Claude Code memory files from every project
 node $M export [folder] [out]  # the project's memory as Markdown files (for Obsidian, backups)
+node $M tokens [folder] [days]   # where tokens go in a project: biggest reads, repeats, CLAUDE.md size, tips
 node $M usage [days]    # tokens threadkeeper added to Claude's context, summary-model calls, share of recalled notes used
 node $M share [--link]  # write decisions and gotchas to .claude/team-memory.md for teammates
 node $M pause [hours]   # stop recording everything (memory still loads); resume with: resume
@@ -218,6 +221,8 @@ Wrap anything in `<private>...</private>` in a prompt to keep it out of memory, 
 | `showStatus` | `true` | one "memory loaded" line for you at session start |
 | `tagNotes` | `true` | background search tags for older notes (a few batched calls per project per day) |
 | `rereadGuard` / `rereadMinBytes` | `true` / `3000` | stop re-reads of unchanged files still in context |
+| `noiseGuard` / `bigReadBytes` | `true` / `80000` | stop the first full read of lockfiles, generated/minified files, build output and files over this size |
+| `searchGuard` | `true` | stop an identical Grep/Glob when nothing was edited or run since |
 | `learnFromUse` | `true` | stop auto-loading notes Claude keeps ignoring (they stay searchable) |
 
 Problems are logged to `~/.threadkeeper/errors.log`; hooks never block Claude.

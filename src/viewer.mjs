@@ -130,6 +130,7 @@ async function api(url, method, req) {
       usage: usageSummary(7, project),
       recall: (await import('./learn.mjs')).recallStats(project, d),
       conflicts: openConflicts(d, project, 10),
+      tokens: project ? (await import('./tokens.mjs')).tokenReport(project, 14, d) : null,
       usageByProject: project ? [] : usageByProject(7),
       stale: d.prepare(`SELECT count(*) n FROM memories ${where} ${where ? 'AND' : 'WHERE'} stale_at IS NOT NULL AND superseded_at IS NULL`).get(...pa).n,
     }];

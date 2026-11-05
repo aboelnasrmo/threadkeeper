@@ -386,10 +386,13 @@ export function markSuperseded(d, project, ids, by = null) {
 /** Usage meter: kind = 'inject' (context threadkeeper added to Claude) or 'model' (summary-model calls). */
 export function recordUsage(project, kind, charsIn, charsOut = 0) {
   try {
+    // A negative amount takes back an earlier entry (a stopped read that was then read after all).
+    const back = charsIn < 0;
     openDb().prepare(
-      `INSERT INTO usage(day, project, kind, n, chars_in, chars_out) VALUES (?, ?, ?, 1, ?, ?)
-       ON CONFLICT(day, project, kind) DO UPDATE SET n = n + 1, chars_in = chars_in + excluded.chars_in, chars_out = chars_out + excluded.chars_out`
-    ).run(now().slice(0, 10), project || 'general', kind, Math.max(0, charsIn | 0), Math.max(0, charsOut | 0));
+      `INSERT INTO usage(day, project, kind, n, chars_in, chars_out) VALUES (?, ?, ?, max(0, ?), max(0, ?), ?)
+       ON CONFLICT(day, project, kind) DO UPDATE SET n = max(0, n + excluded_n), chars_in = max(0, chars_in + excluded_c), chars_out = chars_out + excluded.chars_out`
+        .replace('excluded_n', back ? '-1' : '1').replace('excluded_c', String(charsIn | 0))
+    ).run(now().slice(0, 10), project || 'general', kind, back ? 0 : 1, back ? 0 : charsIn | 0, Math.max(0, charsOut | 0));
   } catch {}
 }
 

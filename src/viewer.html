@@ -485,6 +485,13 @@ async function homeView() {
           ${c.new_id ? `<button class="link-row" data-n="${c.new_id}"><span class="sub">newer #${c.new_id}</span><div class="name" style="font-weight:500">${esc(c.new_title)}</div></button>` : ''}</div>
         ${c.why ? `<div class="sub">${esc(c.why)}</div>` : ''}
         <div class="row" style="margin-top:6px"><button class="btn" data-conf="${c.id}" data-keep="old">Keep older</button>${c.new_id ? `<button class="btn" data-conf="${c.id}" data-keep="new">Keep newer</button>` : `<button class="btn" data-conf="${c.id}" data-keep="new">Older is wrong</button>`}<button class="btn" data-conf="${c.id}" data-keep="both">Both are fine</button></div></div>`).join('')}</div>` : ''}
+    ${h.tokens && (h.tokens.top.length || h.tokens.alwaysTotal) ? `<div class="card"><div class="sec-h" style="margin:0 0 8px">Where tokens go · last 14 days · ${h.tokens.sessions} session(s), ${h.tokens.compactions} compaction(s)</div>
+      ${h.tokens.alwaysTotal ? `<div class="sub" style="margin-bottom:6px">Loaded every session: ${h.tokens.always.map((f) => `${esc(f.file)} ~${fmtK(f.tokens)}`).join(' · ')}</div>` : ''}
+      ${h.tokens.top.length ? `<table class="utab"><thead><tr><th>Biggest file reads</th><th>Reads</th><th>Each</th><th>Total</th></tr></thead><tbody>
+        ${h.tokens.top.map((f) => `<tr><td><span class="file" data-copy="${esc(f.file)}">${esc(f.file)}</span>${f.kind ? ` <span class="pill warn">${esc(f.kind)}</span>` : ''}${f.repeated ? ` <span class="pill">${f.repeated} repeat(s)</span>` : ''}</td><td>${f.reads}</td><td>~${fmtK(f.tokens)}</td><td>~${fmtK(f.total)}</td></tr>`).join('')}
+      </tbody></table>` : ''}
+      ${h.tokens.tips.length ? `<div class="sec-h" style="margin:12px 0 4px">Tips</div>${h.tokens.tips.map((t) => `<div class="sub" style="margin-bottom:6px">• ${esc(t)}</div>`).join('')}` : ''}
+    </div>` : ''}
     ${h.brief ? `<div class="card"><div class="sec-h" style="margin:0 0 6px">Project brief <span style="text-transform:none;letter-spacing:0">· what Claude sees first · ${ago(h.brief.created_at)}</span></div><div class="brief">${fmtBody(h.brief.body)}</div></div>` : ''}
     <div class="grid2">
       <div class="card"><div class="sec-h" style="margin:0 0 6px">Latest notes</div>${h.recent.length ? h.recent.map(row).join('') : '<div class="sub">None yet.</div>'}</div>

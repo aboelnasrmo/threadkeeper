@@ -30,7 +30,8 @@ export function rereadCheck(project, sessionId, input, cfg) {
   ).get(sessionId, last, rel, rel + ':%');
   if (changedSince) return null;
   const key = 'reread:' + rel + (partial ? `@${ti.offset || 0}` : '');
-  if (Number(d.prepare(`DELETE FROM injected_files WHERE session_id = ? AND path = ?`).run(sessionId, key).changes)) return null; // second try
+  // Second try goes through, and the saving counted for the first one didn't happen after all.
+  if (Number(d.prepare(`DELETE FROM injected_files WHERE session_id = ? AND path = ?`).run(sessionId, key).changes)) { recordUsage(project, 'saved', -bytes); return null; }
   d.prepare(`INSERT OR IGNORE INTO injected_files(session_id, path) VALUES (?, ?)`).run(sessionId, key);
   recordUsage(project, 'saved', bytes);
   const mins = Math.max(1, Math.round((Date.now() - Date.parse(last)) / 60000));

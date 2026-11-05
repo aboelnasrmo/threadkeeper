@@ -567,6 +567,32 @@ TL='{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 CODE_TL="$(mcp "$TL" | tail -1)"; DESK_TL="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' "$TL" | THREADKEEPER_CLIENT=desktop node --no-warnings "$ROOT/src/mcp.mjs" | tail -1)"
 [[ ${#CODE_TL} -lt 3300 && "$CODE_TL" != *save_chat* && "$CODE_TL" != *'"project"'* && "$CODE_TL" == *my_prompts* ]] || fail "short tool list in Claude Code (${#CODE_TL} chars)"
 [[ "$DESK_TL" == *save_chat* && "$DESK_TL" == *'"project"'* ]] || fail "full tool list in Desktop"
+echo "23. token guards for project work: noise files, repeated searches; where tokens go"
+TP="$(mktemp -d)"; mkdir -p "$TP/.git" "$TP/src"
+jt() { node -e 'console.log(JSON.stringify(Object.assign({session_id:process.argv[1],cwd:process.argv[2]},JSON.parse(process.argv[3]))))' "$S" "$TP/src" "$1"; }
+head -c 12000 /dev/urandom | base64 > "$TP/package-lock.json"; head -c 70000 /dev/urandom | base64 > "$TP/src/huge.ts"; head -c 6000 /dev/urandom | base64 > "$TP/src/normal.ts"
+head -c 12000 /dev/urandom | base64 > "$TP/CLAUDE.md"
+S=sess-90; jt '{}' | $H SessionStart >/dev/null
+LK='{"tool_name":"Read","tool_input":{"file_path":"'"$TP"'/package-lock.json"}}'
+[[ "$(jt "$LK" | $H PreToolUse)" == *deny*"is a lockfile"* ]] || fail "lockfile read stopped once"
+[[ "$(jt "$LK" | $H PreToolUse)" != *deny* ]] || fail "lockfile second attempt goes through"
+jt "$LK" | $H PostToolUse
+[[ "$(jt '{"tool_name":"Read","tool_input":{"file_path":"'"$TP"'/src/huge.ts"}}' | $H PreToolUse)" == *deny*"very large"* ]] || fail "very large file stopped once"
+[[ "$(jt '{"tool_name":"Read","tool_input":{"file_path":"'"$TP"'/src/huge.ts","offset":1,"limit":50}}' | $H PreToolUse)" != *deny* ]] || fail "a slice of a large file is fine"
+[[ "$(jt '{"tool_name":"Read","tool_input":{"file_path":"'"$TP"'/src/normal.ts"}}' | $H PreToolUse)" != *deny* ]] || fail "normal files are never stopped"
+[[ "$(q "select n, chars_in > 90000 big from usage where project='$TP' and kind='saved'")" == '[{"n":1,"big":1}]' ]] || fail "only the stop that held counts as saved: $(q "select * from usage where project='$TP'")"
+GR='{"tool_name":"Grep","tool_input":{"pattern":"TODO","path":"'"$TP"'/src","output_mode":"content"}}'
+[[ "$(jt "$GR" | $H PreToolUse)" != *deny* ]] || fail "first search goes through"
+jt "$GR" | $H PostToolUse
+[[ "$(jt "$GR" | $H PreToolUse)" == *deny*"exact Grep"* ]] || fail "repeated search stopped"
+[[ "$(jt "$GR" | $H PreToolUse)" != *deny* ]] || fail "repeated search second attempt goes through"
+jt '{"tool_name":"Bash","tool_input":{"command":"git pull"}}' | $H PostToolUse
+[[ "$(jt "$GR" | $H PreToolUse)" != *deny* ]] || fail "search after a command runs again"
+[[ "$(jt '{"tool_name":"Grep","tool_input":{"pattern":"TODO","path":"'"$TP"'/src","output_mode":"count"}}' | $H PreToolUse)" != *deny* ]] || fail "a different search is not a repeat"
+for i in 1 2; do jt '{"tool_name":"Read","tool_input":{"file_path":"'"$TP"'/src/normal.ts"}}' | $H PostToolUse; done
+TK="$(cd "$TP" && node --no-warnings "$ROOT/src/cli.mjs" tokens)"
+[[ "$TK" == *"Where tokens go"*"CLAUDE.md ~"*"normal.ts"*"1 repeat"*"package-lock.json"*"a lockfile"*"Tips:"*"CLAUDE.md files load"* ]] || fail "tokens report: $TK"
+[[ "$(curl -s "localhost:37791/api/home?project=$(node -p 'encodeURIComponent(process.argv[1])' "$TP")")" == *'"tokens":{"project"'* ]] || fail "viewer token report"
 # Every release names its version in the README and the changelog.
 V="$(node -p "require('$ROOT/package.json').version")"
 [[ "$(node -p "require('$ROOT/.claude-plugin/plugin.json').version")" == "$V" ]] || fail "plugin.json version"

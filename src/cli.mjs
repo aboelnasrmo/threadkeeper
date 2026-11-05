@@ -31,6 +31,7 @@ const HELP = `threadkeeper: personal memory for Claude Code
   backup                   save a backup now (one is made automatically each day; last 7 kept)
   restore [YYYY-MM-DD]     list backups, or restore one (quit Claude Code and Desktop first)
   week [days]              what got done per project over the last 7 days
+  tokens [folder] [days]   where tokens go in a project: biggest and repeated file reads, CLAUDE.md size, compactions, tips
   share [folder] [--link]  write the project's decisions and gotchas to .claude/team-memory.md for teammates
                            (--link also adds it to CLAUDE.md so every teammate's Claude loads it)
   pause [hours]            stop remembering (all sessions) for N hours, or until resume; memory still loads
@@ -87,6 +88,13 @@ switch (cmd) {
     for (const f of ['memory.db-wal', 'memory.db-shm']) fs.rmSync(path.join(HOME, f), { force: true });
     fs.copyFileSync(b.path, live);
     console.log(`Restored the backup from ${b.day}.${fs.existsSync(keep) ? ` The database as it was is kept at ${keep}.` : ''}`);
+    break;
+  }
+  case 'tokens': {
+    const { tokenReport, tokenReportText } = await import('./tokens.mjs');
+    const folder = arg && !/^\d+$/.test(arg) ? arg : process.cwd();
+    const days = Number([arg, ...rest].find((x) => /^\d+$/.test(x || ''))) || 14;
+    console.log(tokenReportText(tokenReport(projectFor(folder), days)));
     break;
   }
   case 'share': {

@@ -236,12 +236,21 @@ async function main() {
   if ((cfg.ignoreProjects || []).map(expandHome).some((p) => ci(project) === ci(p) || ci(project).startsWith(ci(p) + path.sep))) return;
 
   if (event === 'PreToolUse') {
-    if (cfg.rereadGuard !== false && input.tool_name === 'Read') {
-      const { rereadCheck } = await import('./reread.mjs');
-      const reason = rereadCheck(project, sessionId, input, cfg);
-      if (reason) {
-        process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } }));
-        return;
+    const deny = (reason) => process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } }));
+    if (input.tool_name === 'Grep' || input.tool_name === 'Glob') {
+      if (cfg.searchGuard === false) return;
+      const reason = (await import('./guard.mjs')).repeatSearchCheck(project, sessionId, input);
+      if (reason) deny(reason);
+      return;
+    }
+    if (input.tool_name === 'Read') {
+      if (cfg.rereadGuard !== false) {
+        const reason = (await import('./reread.mjs')).rereadCheck(project, sessionId, input, cfg);
+        if (reason) return deny(reason);
+      }
+      if (cfg.noiseGuard !== false) {
+        const reason = (await import('./guard.mjs')).noiseCheck(project, sessionId, input, cfg);
+        if (reason) return deny(reason);
       }
     }
     // Read-only and fast: show past notes the first time a file is touched this session.

@@ -2,6 +2,13 @@
 
 Every release, newest first. The version is also shown at the top of the README and by `cli.mjs doctor`.
 
+## 0.17.0 (2026-11-05)
+Saving tokens in the project work itself, not only in what threadkeeper adds.
+- **Noise-file guard**: the first full read of a lockfile, minified or generated file, build output, or any file over 80 KB is stopped with a hint (Grep it, or read a slice). Reading again goes through. Settings: `noiseGuard`, `bigReadBytes`.
+- **Repeat-search guard**: the same Grep or Glob again, with nothing edited or run since and no compaction, is stopped once (its results are still above). Running it again goes through. Setting: `searchGuard`.
+- **Where tokens go**: `tokens [folder] [days]` and a new card on each project's viewer overview list the biggest file reads, files re-read in one session, the CLAUDE.md files loaded into every session, and compactions, with concrete tips (trim CLAUDE.md, block noisy files in `permissions.deny`, split big files that keep coming back).
+- Savings counted by guards are taken back when Claude reads again anyway, so the "saved" number stays honest.
+
 ## 0.16.0 (2026-11-05)
 Token diet: what threadkeeper itself adds to every Claude Code session is about 40% smaller.
 - Tool definitions (sent every session): about 1,540 → 710 tokens. Claude Code gets short descriptions without the Desktop-only tools and arguments; Claude Desktop keeps the full versions.
