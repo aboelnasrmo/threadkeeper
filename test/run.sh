@@ -593,6 +593,32 @@ for i in 1 2; do jt '{"tool_name":"Read","tool_input":{"file_path":"'"$TP"'/src/
 TK="$(cd "$TP" && node --no-warnings "$ROOT/src/cli.mjs" tokens)"
 [[ "$TK" == *"Where tokens go"*"CLAUDE.md ~"*"normal.ts"*"1 repeat"*"package-lock.json"*"a lockfile"*"Tips:"*"CLAUDE.md files load"* ]] || fail "tokens report: $TK"
 [[ "$(curl -s "localhost:37791/api/home?project=$(node -p 'encodeURIComponent(process.argv[1])' "$TP")")" == *'"tokens":{"project"'* ]] || fail "viewer token report"
+echo "24. real token use from transcripts, new-task /clear hint, cat of noise files, big tool output"
+S=sess-91; TR="$TP/transcript.jsonl"
+mkt() { node -e 'const [f,...c]=process.argv.slice(1);require("fs").writeFileSync(f,c.map((x,i)=>JSON.stringify({type:"assistant",isSidechain:false,message:{id:"m"+i,usage:{input_tokens:2,cache_creation_input_tokens:1000,cache_read_input_tokens:Number(x)-1002,output_tokens:50}}})).join("\n")+"\n")' "$TR" "$@"; }
+mkt 30000 60000 120000
+jtt() { node -e 'console.log(JSON.stringify(Object.assign({session_id:process.argv[1],cwd:process.argv[2],transcript_path:process.argv[4]},JSON.parse(process.argv[3]))))' "$S" "$TP/src" "$1" "$TR"; }
+jtt '{}' | $H SessionStart >/dev/null
+[[ "$(jtt '{"tool_name":"Bash","tool_input":{"command":"cat ../package-lock.json"}}' | $H PreToolUse)" == *deny*"lockfile"* ]] || fail "cat of a lockfile stopped once"
+[[ "$(jtt '{"tool_name":"Bash","tool_input":{"command":"cat ../package-lock.json"}}' | $H PreToolUse)" != *deny* ]] || fail "cat second attempt goes through"
+[[ "$(jtt '{"tool_name":"Bash","tool_input":{"command":"cat src/huge.ts | grep foo"}}' | $H PreToolUse)" != *deny* ]] || fail "piped commands are not stopped"
+BIG="$(head -c 60000 /dev/zero | tr '\0' x)"
+jtt '{"tool_name":"Bash","tool_input":{"command":"npm test --verbose"},"tool_response":{"stdout":"'"$BIG"'","stderr":""}}' | $H PostToolUse
+jtt '{"tool_name":"Bash","tool_input":{"command":"ls"},"tool_response":{"stdout":"a b","stderr":""}}' | $H PostToolUse
+[[ "$(q "select count(*) n from events where session_id='sess-91' and detail like 'npm test --verbose [out ~15k tok]'")" == '[{"n":1}]' ]] || fail "big output noted: $(q "select detail from events where session_id='sess-91'")"
+for p in "refactor the payment webhook retries" "payment webhook retries should back off" "add tests for webhook retries backoff"; do
+  [[ "$(jtt '{"prompt":"'"$p"'"}' | $H UserPromptSubmit)" != *"/clear"* ]] || fail "no hint while on the same task: $p"
+done
+[[ "$(jtt '{"prompt":"payment webhook retries timeout handling too"}' | $H UserPromptSubmit)" != *"/clear"* ]] || fail "related prompt gets no hint"
+OUT="$(jtt '{"prompt":"write marketing landing page copy for newsletter signup"}' | $H UserPromptSubmit)"
+[[ "$OUT" == *systemMessage*"~120k tokens"*"/clear"* && "$OUT" != *additionalContext*"/clear"* ]] || fail "new task in a big session: hint for the user only: $OUT"
+[[ "$(jtt '{"prompt":"design pricing table colors for landing hero section"}' | $H UserPromptSubmit)" != *"/clear"* ]] || fail "hint not repeated until the conversation grows"
+mkt 30000 60000 120000 200000
+[[ "$(jtt '{"prompt":"translate onboarding emails into arabic language versions"}' | $H UserPromptSubmit)" == *"~200k tokens"* ]] || fail "hint again after 50k+ growth"
+THREADKEEPER_CFG_OFF=1 node --no-warnings "$ROOT/src/learn.mjs" sess-91
+[[ "$(q "select tok_turns, tok_in, tok_peak from sessions where id='sess-91'")" == '[{"tok_turns":4,"tok_in":410000,"tok_peak":200000}]' ]] || fail "real tokens recorded: $(q "select tok_turns, tok_in, tok_peak from sessions where id='sess-91'")"
+TK="$(cd "$TP" && node --no-warnings "$ROOT/src/cli.mjs" tokens)"
+[[ "$TK" == *"Actually sent to the model: ~410k tokens over 4 turns"*"Big tool output"*"npm test --verbose"*"biggest session reached ~200k"*"Big command output"* ]] || fail "tokens report with real numbers: $TK"
 # Every release names its version in the README and the changelog.
 V="$(node -p "require('$ROOT/package.json').version")"
 [[ "$(node -p "require('$ROOT/.claude-plugin/plugin.json').version")" == "$V" ]] || fail "plugin.json version"

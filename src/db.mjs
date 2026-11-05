@@ -153,6 +153,15 @@ const MIGRATIONS = [
     why TEXT, created_at TEXT NOT NULL, resolved_at TEXT);
   CREATE INDEX IF NOT EXISTS conflicts_open ON conflicts(project, resolved_at);
   `,
+  // v10 -> v11: real token use per session, read from Claude Code's transcript when the session ends
+  `
+  ALTER TABLE sessions ADD COLUMN tok_turns INTEGER;
+  ALTER TABLE sessions ADD COLUMN tok_in INTEGER;
+  ALTER TABLE sessions ADD COLUMN tok_cached INTEGER;
+  ALTER TABLE sessions ADD COLUMN tok_out INTEGER;
+  ALTER TABLE sessions ADD COLUMN tok_peak INTEGER;
+  ALTER TABLE sessions ADD COLUMN tok_compactions INTEGER;
+  `,
 ];
 
 /** Settle a conflict: keep the old note, the new one, or both (they turned out not to clash). */

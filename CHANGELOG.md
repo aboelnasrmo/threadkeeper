@@ -2,6 +2,13 @@
 
 Every release, newest first. The version is also shown at the top of the README and by `cli.mjs doctor`.
 
+## 0.18.0 (2026-11-05)
+Real numbers, and the biggest lever: not re-sending a huge conversation for a new task.
+- **Real token use**: when a session ends, threadkeeper reads Claude Code's own log of it and records what was actually sent to the model (every turn re-sends the conversation, mostly from cache), what was written, and the biggest the conversation got. `tokens` and the viewer's "Where tokens go" card now show these real totals and the biggest sessions, not estimates.
+- **/clear hint**: when a session already carries 80k+ tokens and your new message looks like a different task, you (not Claude, so it costs nothing) get one line suggesting /clear first. It is shown again only after the conversation grows by another 50k. Settings: `clearHint`, `clearHintTokens`.
+- **`cat` of noise files**: a plain `cat package-lock.json` (or less/more/bat) is stopped once like a full Read of it.
+- **Big tool output**: command, web and MCP tool output over ~3k tokens is noted, and the report lists the biggest with a tip (quiet flags, `| tail`, `| grep`).
+
 ## 0.17.0 (2026-11-05)
 Saving tokens in the project work itself, not only in what threadkeeper adds.
 - **Noise-file guard**: the first full read of a lockfile, minified or generated file, build output, or any file over 80 KB is stopped with a hint (Grep it, or read a slice). Reading again goes through. Settings: `noiseGuard`, `bigReadBytes`.

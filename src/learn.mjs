@@ -6,7 +6,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { logError } from './config.mjs';
+import { logError, loadConfig } from './config.mjs';
+import { transcriptTokens } from './sessiontokens.mjs';
 import { openDb, now } from './db.mjs';
 
 const MAX_TRANSCRIPT = 40 * 1024 * 1024;
@@ -40,6 +41,16 @@ function idsInTranscript(file) {
     }
   } catch {}
   return ids;
+}
+
+/** Store the session's real token use (from its transcript). */
+export function recordSessionTokens(sessionId, d = openDb()) {
+  const s = d.prepare('SELECT transcript_path FROM sessions WHERE id = ?').get(sessionId);
+  const t = s?.transcript_path && transcriptTokens(s.transcript_path);
+  if (!t) return null;
+  d.prepare('UPDATE sessions SET tok_turns = ?, tok_in = ?, tok_cached = ?, tok_out = ?, tok_peak = ?, tok_compactions = ? WHERE id = ?')
+    .run(t.turns, t.input, t.cached, t.output, t.peak, t.compactions, sessionId);
+  return t;
 }
 
 /** Record use for the notes shown in one session, then clear its "already shown" list. */
@@ -84,4 +95,11 @@ export function recallStats(project = null, d = openDb()) {
 }
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
-if (isMain) { try { learnSession(process.argv[2]); } catch (e) { logError('learn', e); } }
+if (isMain) {
+  const sid = process.argv[2];
+  try { recordSessionTokens(sid); } catch (e) { logError('session tokens', e); }
+  try {
+    if (loadConfig().learnFromUse === false) openDb().prepare('DELETE FROM injected_files WHERE session_id = ?').run(sid);
+    else learnSession(sid);
+  } catch (e) { logError('learn', e); }
+}

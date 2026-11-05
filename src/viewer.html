@@ -247,7 +247,7 @@ const projName = (p) => p.startsWith('claude-mem:') ? p.slice(11) : p.split(/[\\
 const get = (u) => fetch(u).then((r) => { if (!r.ok && r.status >= 500) throw new Error(r.status); return r.json(); });
 const post = (u, body) => fetch(u, { method: 'POST', headers: { 'x-threadkeeper': '1', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }).then((r) => r.json());
 const qs = (o) => '?' + Object.entries(o).filter(([, v]) => v !== null && v !== undefined && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
-const fmtK = (n) => n >= 10000 ? Math.round(n / 1000) + 'k' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+const fmtK = (n) => n >= 1e7 ? Math.round(n / 1e6) + 'M' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 10000 ? Math.round(n / 1000) + 'k' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
 const tc = (t) => `--c:var(--t-${esc(t)})`;
 // Only touch the DOM when the markup actually changed, so the 4-second refresh never steals focus, scroll or selection.
 const setHTML = (el, html) => { if (el._html === html) return false; el._html = html; el.innerHTML = html; return true; };
@@ -485,11 +485,14 @@ async function homeView() {
           ${c.new_id ? `<button class="link-row" data-n="${c.new_id}"><span class="sub">newer #${c.new_id}</span><div class="name" style="font-weight:500">${esc(c.new_title)}</div></button>` : ''}</div>
         ${c.why ? `<div class="sub">${esc(c.why)}</div>` : ''}
         <div class="row" style="margin-top:6px"><button class="btn" data-conf="${c.id}" data-keep="old">Keep older</button>${c.new_id ? `<button class="btn" data-conf="${c.id}" data-keep="new">Keep newer</button>` : `<button class="btn" data-conf="${c.id}" data-keep="new">Older is wrong</button>`}<button class="btn" data-conf="${c.id}" data-keep="both">Both are fine</button></div></div>`).join('')}</div>` : ''}
-    ${h.tokens && (h.tokens.top.length || h.tokens.alwaysTotal) ? `<div class="card"><div class="sec-h" style="margin:0 0 8px">Where tokens go · last 14 days · ${h.tokens.sessions} session(s), ${h.tokens.compactions} compaction(s)</div>
+    ${h.tokens && (h.tokens.top.length || h.tokens.alwaysTotal || h.tokens.real?.n || h.tokens.bigOutputs?.length) ? `<div class="card"><div class="sec-h" style="margin:0 0 8px">Where tokens go · last 14 days · ${h.tokens.sessions} session(s), ${h.tokens.compactions} compaction(s)</div>
+      ${h.tokens.real?.n ? `<div class="sub" style="margin-bottom:6px">Actually sent to the model: <b>~${fmtK(h.tokens.real.input)}</b> tokens over ${h.tokens.real.turns.toLocaleString()} turns, ${Math.round(100 * h.tokens.real.cached / Math.max(1, h.tokens.real.input))}% from cache · biggest conversation ~${fmtK(h.tokens.real.peak)}</div>
+        ${h.tokens.biggest.length ? `<table class="utab" style="margin-bottom:8px"><thead><tr><th>Biggest sessions</th><th>Turns</th><th>Peak</th><th>Sent</th></tr></thead><tbody>${h.tokens.biggest.map((b) => `<tr><td>${esc(b.started_at.slice(0, 10))} <span class="sub">${esc(b.first || '')}</span></td><td>${b.turns}</td><td>~${fmtK(b.peak)}</td><td>~${fmtK(b.input)}</td></tr>`).join('')}</tbody></table>` : ''}` : ''}
       ${h.tokens.alwaysTotal ? `<div class="sub" style="margin-bottom:6px">Loaded every session: ${h.tokens.always.map((f) => `${esc(f.file)} ~${fmtK(f.tokens)}`).join(' · ')}</div>` : ''}
       ${h.tokens.top.length ? `<table class="utab"><thead><tr><th>Biggest file reads</th><th>Reads</th><th>Each</th><th>Total</th></tr></thead><tbody>
         ${h.tokens.top.map((f) => `<tr><td><span class="file" data-copy="${esc(f.file)}">${esc(f.file)}</span>${f.kind ? ` <span class="pill warn">${esc(f.kind)}</span>` : ''}${f.repeated ? ` <span class="pill">${f.repeated} repeat(s)</span>` : ''}</td><td>${f.reads}</td><td>~${fmtK(f.tokens)}</td><td>~${fmtK(f.total)}</td></tr>`).join('')}
       </tbody></table>` : ''}
+      ${h.tokens.bigOutputs?.length ? `<table class="utab" style="margin-top:8px"><thead><tr><th>Big tool output</th><th>Runs</th><th></th><th>Total</th></tr></thead><tbody>${h.tokens.bigOutputs.map((o) => `<tr><td><span class="file">${esc(o.what)}</span></td><td>${o.runs}</td><td></td><td>~${fmtK(o.tokens)}</td></tr>`).join('')}</tbody></table>` : ''}
       ${h.tokens.tips.length ? `<div class="sec-h" style="margin:12px 0 4px">Tips</div>${h.tokens.tips.map((t) => `<div class="sub" style="margin-bottom:6px">• ${esc(t)}</div>`).join('')}` : ''}
     </div>` : ''}
     ${h.brief ? `<div class="card"><div class="sec-h" style="margin:0 0 6px">Project brief <span style="text-transform:none;letter-spacing:0">· what Claude sees first · ${ago(h.brief.created_at)}</span></div><div class="brief">${fmtBody(h.brief.body)}</div></div>` : ''}

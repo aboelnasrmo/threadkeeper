@@ -73,3 +73,42 @@ export function repeatSearchCheck(project, sessionId, input) {
   return `threadkeeper: you ran this exact ${input.tool_name} ${mins} min ago and nothing was edited or run since, so its results are above. ` +
     `Not in your context? Run it again and it goes through.`;
 }
+
+// New task in a big session: every message re-sends the whole conversation, so starting a new, unrelated task in a
+// session that already carries 80k+ tokens costs that much again on every turn. Shown to the user only (zero tokens
+// for Claude), at most once per extra 50k of growth.
+const STOP = new Set(('that this with from have what when where which there their they them then than will would could should ' +
+  'about into your just also some more make like want need please thanks okay sure does done here were been being these those ' +
+  'can can\'t dont don\'t lets let\'s again still very really much many only same other each every while after before because').split(' '));
+const words = (t) => new Set(String(t || '').toLowerCase().split(/[^a-z0-9؀-ۿ]+/).filter((w) => w.length >= 4 && !STOP.has(w)));
+
+export function newTaskHint(project, sessionId, prompt, transcript, cfg = {}) {
+  if (cfg.clearHint === false || !transcript) return null;
+  const p = words(prompt);
+  if (p.size < 3 || /^\s*(also|and|now|then|next|continue|go on|same|again|ok)\b/i.test(prompt)) return null;
+  const min = Number(cfg.clearHintTokens) || 80000;
+  const d = openDb();
+  const prompts = d.prepare(`SELECT detail FROM events WHERE session_id = ? AND kind = 'prompt' ORDER BY id DESC LIMIT 8`).all(sessionId);
+  if (prompts.length < 3) return null; // too little history to tell a new task from the current one
+  const tools = d.prepare(`SELECT detail FROM events WHERE session_id = ? AND kind = 'tool' ORDER BY id DESC LIMIT 60`).all(sessionId);
+  const recent = words([...prompts, ...tools].map((e) => e.detail).join(' '));
+  let shared = 0;
+  for (const w of p) if (recent.has(w)) shared++;
+  if (shared / p.size >= 0.2) return null;
+  return import('./sessiontokens.mjs').then(({ currentContext }) => {
+    const ctx = currentContext(transcript);
+    if (ctx < min) return null;
+    const last = d.prepare(`SELECT path FROM injected_files WHERE session_id = ? AND path LIKE 'hint:%' ORDER BY path DESC`).all(sessionId)
+      .map((r) => Number(r.path.slice(5))).reduce((a, b) => Math.max(a, b), 0);
+    if (last && ctx < last + 50000) return null;
+    d.prepare('INSERT OR IGNORE INTO injected_files(session_id, path) VALUES (?, ?)').run(sessionId, 'hint:' + String(ctx).padStart(9, '0'));
+    return `threadkeeper: this conversation is ~${Math.round(ctx / 1000)}k tokens, sent again with every message. ` +
+      `If this is a new task, /clear first: threadkeeper brings back what matters, and each turn gets that much cheaper.`;
+  });
+}
+
+/** The file a plain `cat file` (or less/more/bat/nl) prints whole; null for anything piped, sliced or chained. */
+export function catTarget(cmd) {
+  const m = /^\s*(?:cat|less|more|bat|nl)\s+(?:-\S+\s+)*("[^"]+"|'[^']+'|[^\s|;&<>`$]+)\s*$/.exec(String(cmd || ''));
+  return m ? m[1].replace(/^["']|["']$/g, '') : null;
+}

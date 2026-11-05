@@ -61,6 +61,14 @@ export function describeTool(name, input = {}, project) {
   }
 }
 
+/** Size in chars of a tool's output when it is big enough to matter (it all lands in Claude's context). */
+export function bigOutput(name, resp) {
+  if (!resp || !(name === 'Bash' || name === 'WebFetch' || name.startsWith('mcp__'))) return 0;
+  let n = 0;
+  try { n = typeof resp === 'string' ? resp.length : resp.stdout != null ? String(resp.stdout).length + String(resp.stderr || '').length : JSON.stringify(resp).length; } catch {}
+  return n >= 12000 ? n : 0;
+}
+
 // Tools that add noise without telling a future session anything.
 const SKIP_TOOLS = /^(ToolSearch|mcp__(plugin_)?threadkeeper.*|TaskList|TaskGet|ListMcpResourcesTool)$/;
 
@@ -243,6 +251,15 @@ async function main() {
       if (reason) deny(reason);
       return;
     }
+    if (input.tool_name === 'Bash') {
+      // `cat package-lock.json` costs the same as reading it: same noise-file stop.
+      if (cfg.noiseGuard === false) return;
+      const fp = (await import('./guard.mjs')).catTarget(input.tool_input?.command);
+      if (!fp) return;
+      const reason = (await import('./guard.mjs')).noiseCheck(project, sessionId, { ...input, tool_input: { file_path: fp } }, cfg);
+      if (reason) deny(reason);
+      return;
+    }
     if (input.tool_name === 'Read') {
       if (cfg.rereadGuard !== false) {
         const reason = (await import('./reread.mjs')).rereadCheck(project, sessionId, input, cfg);
@@ -340,11 +357,16 @@ async function main() {
         emit('UserPromptSubmit', `threadkeeper: this session is back on the record; from now on it is remembered${priv.pausedUntil(d) ? ' (but all memory is still paused: run `cli.mjs resume` or use the viewer to resume)' : ''}. Confirm in one line.`);
         break;
       }
+      let hint = null;
+      try { hint = prompt.trim() ? await (await import('./guard.mjs')).newTaskHint(project, sessionId, prompt, input.transcript_path, cfg) : null; }
+      catch (e) { logError('new task hint', e); }
       if (prompt.trim() && !off) addEvent(sessionId, 'prompt', null, clip(prompt, 1500));
+      let recall = null;
       if (cfg.promptRecall && prompt.trim()) {
         const { promptContext } = await import('./context.mjs');
-        emit('UserPromptSubmit', promptContext(project, sessionId, prompt, cfg.promptRecallMax));
+        recall = promptContext(project, sessionId, prompt, cfg.promptRecallMax);
       }
+      emit('UserPromptSubmit', recall, hint);
       break;
     }
     case 'PostToolUse':
@@ -360,6 +382,8 @@ async function main() {
       if (off || SKIP_TOOLS.test(name)) break;
       let detail = describeTool(name, input.tool_input || {}, project);
       if (name === 'Read' && input.agent_id) detail += ' [subagent]';
+      const outSize = bigOutput(name, input.tool_response);
+      if (outSize) detail += ` [out ~${Math.round(outSize / 4000)}k tok]`;
       if (event === 'PostToolUseFailure') detail = `FAILED: ${detail} → ${clip(redact(input.error ?? ''), 200)}`;
       addEvent(sessionId, 'tool', name, detail, { isEdit: EDIT_TOOLS.has(name) && event === 'PostToolUse' });
       break;
@@ -391,8 +415,8 @@ async function main() {
     case 'SessionEnd': {
       d.prepare(`UPDATE sessions SET ended_at = ? WHERE id = ?`).run(now(), sessionId);
       // Learn which shown notes were used (reads the transcript, so in the background); it then clears the shown list.
-      if (cfg.learnFromUse === false) d.prepare(`DELETE FROM injected_files WHERE session_id = ?`).run(sessionId);
-      else spawnDetached('learn.mjs', sessionId);
+      // …and record the session's real token use from its transcript.
+      spawnDetached('learn.mjs', sessionId);
       const s = d.prepare(`SELECT * FROM sessions WHERE id = ?`).get(sessionId);
       if (!s) break;
       if (off) d.prepare(`UPDATE sessions SET summarized = -1 WHERE id = ?`).run(sessionId);
