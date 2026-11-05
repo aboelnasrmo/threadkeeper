@@ -13,7 +13,7 @@ import { HOME, loadConfig, logError } from './config.mjs';
 import { openDb, now, titleKey, relPath, MEMORY_TYPES } from './db.mjs';
 
 const LOCK_MS = 2 * 60 * 1000;
-const expandHome = (p) => (p && p.startsWith('~') ? path.join(os.homedir(), p.slice(1)) : p);
+const expandHome = (p) => (p && /^~(?=$|[\\/])/.test(p) ? path.join(os.homedir(), p.slice(1)) : p);
 
 export function machineId() {
   const f = path.join(HOME, 'machine-id');
@@ -77,7 +77,7 @@ export function encryptOwnFile(dir, me, key) {
 }
 
 /** Projects travel by folder name: /Users/me/projects/my-app and C:\Users\me\...\my-app are the same project. */
-export const projectKey = (p) => (p === 'general' ? 'general' : String(p).replace(/^(claude-mem|sync):/, '').split(/[\\/]/).filter(Boolean).pop() || 'general');
+export const projectKey = (p) => (p === 'general' ? 'general' : (String(p).replace(/^(claude-mem|sync):/, '').split(/[\\/]/).filter(Boolean).pop() || 'general').toLowerCase());
 
 function localProjectFor(d, key) {
   if (key === 'general') return 'general';
@@ -85,7 +85,7 @@ function localProjectFor(d, key) {
     `SELECT project FROM (SELECT project, last_activity at FROM sessions UNION ALL SELECT project, created_at FROM memories)
      WHERE project NOT LIKE 'sync:%' AND project NOT LIKE 'claude-mem:%' GROUP BY project ORDER BY max(at) DESC`
   ).all();
-  return rows.find((r) => projectKey(r.project) === key)?.project || 'sync:' + key;
+  return rows.find((r) => projectKey(r.project) === String(key).toLowerCase())?.project || 'sync:' + String(key).toLowerCase();
 }
 
 const getState = (d, k) => d.prepare('SELECT value FROM sync_state WHERE key = ?').get(k)?.value ?? null;

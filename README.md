@@ -2,6 +2,17 @@
 
 Personal, local-only memory for Claude Code. Built so Claude never loses its place: not after a long session, not after the context is compacted, not next week. No account, no hosted service, no extra dependencies. Inspired by [claude-mem](https://github.com/thedotmack/claude-mem); written from scratch to be small, local-only and token-lean.
 
+## Why use it
+
+- **Claude picks up where you left off.** Every session starts with what matters: what the project is, what you were doing, what's still open, and your rules. No more re-explaining the project or pasting last week's notes.
+- **Long sessions don't lose the thread.** Before Claude Code compacts the conversation, the work so far is saved and handed straight back, so decisions and half-finished work survive.
+- **Fewer tokens, not more.** It loads a short index (about 750 tokens at start), shows old notes only when they clearly match, never repeats itself, and stops Claude re-reading unchanged files, often the biggest waste in long sessions.
+- **Hard-won lessons stick.** Bug causes, traps and decisions are saved with their reasons, so the same problem isn't debugged twice. Notes that turn out wrong are retired, and notes about rewritten files are flagged.
+- **Your rules apply everywhere.** Say "always…" or "never…" once and it holds in every project, on every machine, including Claude's helper agents.
+- **Private by design.** Everything stays on your machines in one SQLite file. No account, no server, no telemetry, and secrets are stripped before anything is saved. Sync between your machines is end-to-end encrypted.
+- **Works across your setup.** macOS, Windows and Linux, Claude Code and Claude Desktop, with notes shared between machines through any cloud folder.
+- **Zero maintenance.** It summarizes, merges duplicates, refreshes the project brief, tags notes for search and backs itself up in the background. A local viewer lets you see, search, edit and pin everything.
+
 ## How it works
 
 **One session, start to finish**

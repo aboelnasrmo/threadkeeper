@@ -206,6 +206,10 @@ export const now = () => new Date().toISOString();
 export function projectFor(cwd) {
   if (!cwd) return 'unknown';
   let dir = path.resolve(cwd);
+  // One folder, one project: "c:\\x" and "C:\\x" (VS Code vs Explorer), or a different letter case on macOS/Windows.
+  try { dir = fs.realpathSync.native(dir); } catch {}
+  if (process.platform === 'win32') dir = dir.replace(/^[a-z]:/, (m) => m.toUpperCase());
+  cwd = dir;
   for (;;) {
     if (fs.existsSync(path.join(dir, '.git'))) return dir;
     const parent = path.dirname(dir);
@@ -217,8 +221,11 @@ export function projectFor(cwd) {
 /** Store file paths relative to the project when they live inside it. */
 export function relPath(project, p) {
   if (!p || typeof p !== 'string') return null;
-  if (path.isAbsolute(p) && project && (p === project || p.startsWith(project + path.sep) || p.startsWith(project + '/'))) {
-    return path.relative(project, p).split(path.sep).join('/');
+  if (path.isAbsolute(p) && project) {
+    const ci = process.platform === 'win32' || process.platform === 'darwin';
+    const norm = (x) => { const r = path.resolve(x); return ci ? r.toLowerCase() : r; };
+    const a = norm(p), b = norm(project);
+    if (a === b || a.startsWith(b + path.sep)) return path.relative(path.resolve(project), path.resolve(p)).split(path.sep).join('/').replace(/^$/, '.');
   }
   return p.replace(/\\/g, '/').replace(/^\.\//, '');
 }

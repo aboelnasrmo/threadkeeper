@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { attributeProject } from './attribute.mjs';
 import path from 'node:path';
-import { loadConfig, logError } from './config.mjs';
+import { loadConfig, logError, claudeCommand } from './config.mjs';
 import { openDb, now, insertMemory, openTodos, resolveTodos, MEMORY_TYPES, qualifies, markSuperseded, recordUsage, RANK } from './db.mjs';
 import { redact, clip } from './redact.mjs';
 import { assistantReplies } from './transcript.mjs';
@@ -141,9 +141,11 @@ export function parseResponse(text) {
 }
 
 export function callClaude(prompt, cfg, { timeout = 180_000, project = 'general' } = {}) {
-  const bin = process.env.THREADKEEPER_CLAUDE_BIN || 'claude';
-  const r = spawnSync(bin, ['-p', '--model', cfg.model, '--output-format', 'text'], {
+  const { cmd, shell } = claudeCommand();
+  const model = /^[\w.:-]{1,60}$/.test(String(cfg.model)) ? String(cfg.model) : 'haiku';
+  const r = spawnSync(cmd, ['-p', '--model', model, '--output-format', 'text'], {
     windowsHide: true,
+    shell,
     input: prompt,
     encoding: 'utf8',
     timeout,

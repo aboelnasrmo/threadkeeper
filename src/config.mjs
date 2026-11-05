@@ -59,6 +59,25 @@ const DEFAULTS = {
   rereadMinBytes: 3000,
 };
 
+/**
+ * How to start the `claude` CLI. On Windows an npm install puts a claude.cmd shim on PATH, which Node can't run
+ * without a shell; the native installer gives claude.exe, which it can. Prefer claude.exe, else go through the shell
+ * (arguments are fixed flags; the prompt goes on stdin).
+ */
+export function claudeCommand() {
+  if (process.env.THREADKEEPER_CLAUDE_BIN) return { cmd: process.env.THREADKEEPER_CLAUDE_BIN, shell: false };
+  if (process.platform !== 'win32') return { cmd: 'claude', shell: false };
+  for (const dir of String(process.env.PATH || '').split(path.delimiter)) {
+    if (!dir) continue;
+    const exe = path.join(dir.replace(/^"|"$/g, ''), 'claude.exe');
+    try { if (fs.statSync(exe).isFile()) return { cmd: exe, shell: false }; } catch {}
+  }
+  return { cmd: 'claude', shell: true };
+}
+
+/** Paths on Windows and macOS are case-insensitive: compare them that way there. */
+export const samePathCase = (p) => (process.platform === 'win32' || process.platform === 'darwin' ? String(p).toLowerCase() : String(p));
+
 export function loadConfig() {
   fs.mkdirSync(HOME, { recursive: true });
   const file = path.join(HOME, 'settings.json');

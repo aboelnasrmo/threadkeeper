@@ -5,7 +5,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadConfig, logError, HOME, VERSION } from './config.mjs';
+import { loadConfig, logError, HOME, VERSION, samePathCase } from './config.mjs';
 import { openDb, ensureSession, addEvent, projectFor, qualifies, pendingWork, now, relPath, EDIT_TOOLS, recordUsage, gitBranch } from './db.mjs';
 import { redact, clip, isSensitivePath } from './redact.mjs';
 
@@ -151,7 +151,8 @@ export function isNotAProject(p) {
 
 function adoptImported(project) {
   const d = openDb();
-  for (const key of ['claude-mem:' + path.basename(project), 'sync:' + path.basename(project)]) adoptKey(d, project, key);
+  const base = path.basename(project);
+  for (const key of new Set(['claude-mem:' + base, 'sync:' + base, 'sync:' + base.toLowerCase()])) adoptKey(d, project, key);
 }
 
 function adoptKey(d, project, key) {
@@ -217,7 +218,8 @@ async function main() {
   // Home folder and drive roots aren't projects: notes there would sync as a user name or "C:".
   if (isNotAProject(project)) return;
   currentProject = project;
-  if ((cfg.ignoreProjects || []).map(expandHome).some((p) => project === p || project.startsWith(p + path.sep))) return;
+  const ci = (p) => samePathCase(path.resolve(p));
+  if ((cfg.ignoreProjects || []).map(expandHome).some((p) => ci(project) === ci(p) || ci(project).startsWith(ci(p) + path.sep))) return;
 
   if (event === 'PreToolUse') {
     if (cfg.rereadGuard !== false && input.tool_name === 'Read') {

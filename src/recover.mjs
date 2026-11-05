@@ -116,7 +116,7 @@ export function importAllClaudeMemory() {
 function describe(name, input = {}, project) {
   let fp = input.file_path || input.notebook_path || input.path;
   if (fp && isSensitivePath(fp)) return `${fp} (sensitive file, content not stored)`;
-  if (fp && project && fp.startsWith(project)) fp = path.relative(project, fp).split(path.sep).join('/');
+  if (fp && project && (fp === project || fp.startsWith(project + path.sep) || fp.startsWith(project + '/'))) fp = path.relative(project, fp).split(path.sep).join('/');
   if (name === 'Bash') return clip(redact(input.command ?? ''), 300);
   if (fp) return name === 'Edit' || name === 'MultiEdit' ? `${fp}: ${clip(redact(input.new_string ?? input.edits?.[0]?.new_string ?? ''), 200)}` : fp;
   return clip(redact(JSON.stringify(input)), 200);

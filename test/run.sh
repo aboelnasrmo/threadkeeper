@@ -466,6 +466,11 @@ for i in 1 2 3 4 5; do j '{"tool_name":"Bash","tool_input":{"command":"git statu
 j '{"reason":"exit"}' | $H SessionEnd
 waitfor "select project from memories where title='Never push without asking'" '[{"project":"general"}]'
 [[ "$(stat -c %a "$THREADKEEPER_HOME")" == 700 && "$(stat -c %a "$THREADKEEPER_HOME/memory.db")" == 600 ]] || fail "data folder must be private"
+# Cross-OS: project keys ignore case and separators; ~user isn't expanded as home; relPath keeps '/' paths.
+N "$THREADKEEPER_HOME" "import {projectKey} from '$ROOT/src/sync.mjs'; import {relPath} from '$ROOT/src/db.mjs';
+  const ok = projectKey('C:\\\\Users\\\\me\\\\My-App')==='my-app' && projectKey('/Users/me/my-app')==='my-app' && projectKey('general')==='general'
+    && relPath('/a/app','/a/app/src/x.js')==='src/x.js' && relPath('/a/app','/a/app2/x.js')==='/a/app2/x.js';
+  if (!ok) throw new Error('cross-os keys')" || fail "cross-OS project keys and paths"
 echo "13. fuzz: redaction, search queries, de-duplication"
 THREADKEEPER_HOME="$(mktemp -d)" node --no-warnings "$ROOT/test/fuzz.mjs" 1500 || fail "fuzz"
 

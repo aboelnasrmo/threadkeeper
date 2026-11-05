@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import { spawnSync, spawn } from 'node:child_process';
-import { HOME, loadConfig, VERSION } from './config.mjs';
+import { HOME, loadConfig, VERSION, claudeCommand } from './config.mjs';
 import { openDb, projectFor, openTodos } from './db.mjs';
 
 const [cmd, arg, ...rest] = process.argv.slice(2);
@@ -77,6 +77,9 @@ switch (cmd) {
       cur.exec(`VACUUM INTO '${keep.replace(/'/g, "''")}'`);
       cur.close();
     }
+    // The background viewer keeps the database open (on Windows that blocks replacing it): ask it to stop first.
+    try { await fetch(`http://127.0.0.1:${loadConfig().viewerPort || 37777}/api/restart`, { method: 'POST', headers: { 'x-threadkeeper': '1' }, signal: AbortSignal.timeout(1000) }); } catch {}
+    await new Promise((r) => setTimeout(r, 500));
     for (const f of ['memory.db-wal', 'memory.db-shm']) fs.rmSync(path.join(HOME, f), { force: true });
     fs.copyFileSync(b.path, live);
     console.log(`Restored the backup from ${b.day}.${fs.existsSync(keep) ? ` The database as it was is kept at ${keep}.` : ''}`);
@@ -212,11 +215,12 @@ switch (cmd) {
     const ok = (b, msg, fix) => console.log(`${b ? '✓' : '✗'} ${msg}${!b && fix ? `\n    → ${fix}` : ''}`);
     const [maj, min] = process.versions.node.split('.').map(Number);
     console.log(`threadkeeper ${VERSION} (${path.dirname(path.dirname(fileURLToPath(import.meta.url)))})`);
-    ok(maj > 22 || (maj === 22 && min >= 13), `node ${process.versions.node}`, 'needs Node 22.13+ (brew upgrade node)');
+    ok(maj > 22 || (maj === 22 && min >= 13), `node ${process.versions.node}`, `needs Node 22.13+ (${process.platform === 'darwin' ? 'brew upgrade node' : 'install the current Node from nodejs.org'})`);
     let dbOk = true;
     try { openDb(); } catch { dbOk = false; }
     ok(dbOk, `database at ${path.join(HOME, 'memory.db')}`);
-    const c = spawnSync('claude', ['--version'], { encoding: 'utf8' });
+    const cc = claudeCommand();
+    const c = spawnSync(cc.cmd, ['--version'], { encoding: 'utf8', shell: cc.shell, windowsHide: true });
     ok(c.status === 0, `claude CLI ${c.stdout?.trim() || 'not found'}`, 'summaries need the `claude` command on PATH');
     const pluginsFile = path.join(os.homedir(), '.claude', 'plugins', 'installed_plugins.json');
     let installed = false;
@@ -267,7 +271,9 @@ switch (cmd) {
     const { startViewer } = await import('./viewer.mjs');
     const port = Number(arg) || 37777;
     startViewer(port);
-    if (process.platform === 'darwin') spawn('open', [`http://localhost:${port}`], { stdio: 'ignore', detached: true }).unref();
+    const url = `http://localhost:${port}`;
+    const [opener, args] = process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '""', url]] : ['xdg-open', [url]];
+    try { spawn(opener, args, { stdio: 'ignore', detached: true, windowsHide: true }).on('error', () => {}).unref(); } catch {}
     break;
   }
   default:
