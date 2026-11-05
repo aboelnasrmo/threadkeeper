@@ -1,0 +1,25 @@
+name: release
+# Every version that reaches main gets a tag (vX.Y.Z) and a GitHub release with its CHANGELOG section.
+on:
+  push:
+    branches: [main]
+    paths: [package.json]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag and release the current version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="$(node -p "require('./package.json').version")"
+          if gh release view "v$V" >/dev/null 2>&1; then echo "v$V already released"; exit 0; fi
+          awk -v v="$V" '$0 ~ "^## "v" " {on=1; next} /^## [0-9]/ {if (on) exit} on' CHANGELOG.md > notes.md
+          gh release create "v$V" --target "$GITHUB_SHA" --title "v$V" --notes-file notes.md
