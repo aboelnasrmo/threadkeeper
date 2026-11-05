@@ -1,6 +1,7 @@
 // Text injected into Claude's context: at session start, and when Claude opens a file it has history on.
 import path from 'node:path';
 import { openDb, openTodos, relPath, filesOf, RANK } from './db.mjs';
+import { ignored } from './learn.mjs';
 
 const ICON = { decision: '⚖', bugfix: '●', feature: '◆', refactor: '↻', discovery: '○', gotcha: '⚠', todo: '☐', note: '·' };
 const day = (iso) => iso.slice(0, 10);
@@ -78,10 +79,15 @@ function resumeContext(d, project, sessionId, notices) {
 
 export function buildContext(project, cfg, { sessionId, source, notices = [] } = {}) {
   const d = openDb();
+  const learn = cfg.learnFromUse !== false;
   if (source === 'resume' && sessionId) return resumeContext(d, project, sessionId, notices);
   // After compaction the conversation summary keeps the thread; add the brief, rules, todos and this session's own record.
   const compact = source === 'compact';
-  if (compact && sessionId) d.prepare(`DELETE FROM injected_files WHERE session_id = ? AND path LIKE 'mem:%'`).run(sessionId);
+  if (compact && sessionId) {
+    // Notes shown before compaction may be shown again; keep a record of them for learning which ones get used.
+    d.prepare(`UPDATE OR IGNORE injected_files SET path = 'seen:' || substr(path, 5) WHERE session_id = ? AND path LIKE 'mem:%'`).run(sessionId);
+    d.prepare(`DELETE FROM injected_files WHERE session_id = ? AND path LIKE 'mem:%'`).run(sessionId);
+  }
   const current = sessionId && compact ? thisSession(d, sessionId) : '';
   // Todos untouched for a month are usually done or dropped: list them by count only (the `todos` tool shows them).
   const allTodos = openTodos(project, 40);
@@ -102,7 +108,7 @@ export function buildContext(project, cfg, { sessionId, source, notices = [] } =
   const loose = d.prepare(
     `SELECT * FROM memories WHERE project = ? AND type NOT IN ('todo','brief') AND superseded_at IS NULL AND pinned = 0 AND COALESCE(source, '') != 'manual'
      ORDER BY created_at DESC, id DESC LIMIT 60`
-  ).all(project).filter((m) => !m.session_id || !shownSessions.has(m.session_id)).slice(0, compact ? 0 : hasBrief(d, project, cfg) ? Math.min(3, cfg.contextLooseNotes ?? 6) : cfg.contextLooseNotes ?? 6);
+  ).all(project).filter((m) => (!m.session_id || !shownSessions.has(m.session_id)) && !(learn && ignored(m))).slice(0, compact ? 0 : hasBrief(d, project, cfg) ? Math.min(3, cfg.contextLooseNotes ?? 6) : cfg.contextLooseNotes ?? 6);
   // The user's own preferences (rules saved "everywhere", or from Claude Code memory in the home folder) load in every project.
   const prefs = project === 'general' ? [] : d.prepare(
     `SELECT * FROM memories WHERE project = 'general' AND pinned = 1 AND superseded_at IS NULL AND type != 'todo' ORDER BY id DESC LIMIT 12`
@@ -146,6 +152,7 @@ export function buildContext(project, cfg, { sessionId, source, notices = [] } =
       const lines = [`### ${day(s.at)}`];
       const ids = [];
       for (const m of byId.all(s.session_id)) {
+        if (m.type !== 'session' && learn && ignored(m)) continue;
         if (s.idx === 0) ids.push(m.id);
         if (m.type === 'session') lines.push(short(m.body, 600));
         else if (s.idx === 0) lines.push(`- ${ICON[m.type] || '·'} [${m.type}]${stale(m)} ${m.title}: ${short(m.body, 300)} (#${m.id})`);
@@ -204,7 +211,7 @@ export function fileContext(project, sessionId, filePath) {
      WHERE f.path = ? AND m.project = ? AND m.type NOT IN ('session','brief') AND m.superseded_at IS NULL AND (m.status IS NULL OR m.status = 'open')
        AND NOT EXISTS (SELECT 1 FROM injected_files i WHERE i.session_id = ? AND i.path = 'mem:' || m.id)
      ORDER BY (m.type IN ('gotcha','decision')) DESC, m.pinned DESC, m.id DESC LIMIT 3`
-  ).all(rel, project, sessionId);
+  ).all(rel, project, sessionId).filter((m) => !ignored(m));
   if (!rows.length) return '';
   markShown(d, sessionId, rows.map((m) => m.id));
   return [
@@ -245,6 +252,7 @@ export function promptContext(project, sessionId, prompt, max = 3) {
     const text = title + ' ' + m.body.toLowerCase();
     if (terms.filter((t) => text.includes(stem(t))).length < need) continue;
     if (!terms.some((t) => title.includes(stem(t)))) continue;
+    if (ignored(m)) continue;
     if (Number(mark.run(sessionId, 'mem:' + m.id).changes) === 0) continue; // already shown this session
     picked.push(m);
     if (picked.length >= max) break;

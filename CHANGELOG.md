@@ -2,6 +2,14 @@
 
 Every release, newest first. The version is also shown at the top of the README and by `cli.mjs doctor`.
 
+## 0.14.0 (2026-11-05)
+- **Off the record**: say "off the record" and that session is kept out of memory (what was captured so far is deleted; nothing is saved or synced). "Back on the record" undoes it. **Pause** everything for 1, 4 or 24 hours or until you resume, from the viewer or with `pause` / `resume`. A session can also be made private afterwards in the viewer.
+- **Learns what Claude uses**: every recalled note is checked at session end (opened, mentioned by `#id`, or its files worked on). Notes shown 4 times and never used stop loading by themselves for 30 days; they stay searchable. The viewer and `usage` show the share of recalled notes used.
+- **Team memory**: `share --link` (or "Share with team" in the viewer) writes the brief's essentials, decisions and gotchas to `.claude/team-memory.md`, imported from `CLAUDE.md`, so teammates' Claude knows them. Refreshed daily.
+- Viewer: select several notes to pin, mark outdated, mark done or forget at once; "Search by meaning too" when words find little; export a project as one Markdown file.
+- Tests on every OS: `test/smoke.mjs` (Node only) runs on macOS, Windows and Linux with Node 22 and 24 in GitHub Actions; badge in the README.
+- Public releases are tagged, with release notes on GitHub.
+
 ## 0.13.1 (2026-11-05)
 - Viewer: token use per project. Each project's overview shows tokens added, tokens saved and summary-model calls for the last 7 days, and the all-projects overview has a "Tokens by project" table.
 - A viewer left running from a very old version (before 0.4.4) is now stopped and replaced at the next session start (macOS and Linux), instead of showing an empty page until a reboot.

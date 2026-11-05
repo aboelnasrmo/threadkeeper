@@ -24,6 +24,12 @@ const assert = (c, m) => { if (!c) throw new Error('viewer e2e: ' + m); };
   await page.getByRole('tab', { name: 'Notes' }).click();
   await page.waitForSelector('[data-n]');
   assert(await page.locator(".chip[data-t='bugfix']").count() === 1, 'type chip');
+  await page.click('#selmode');
+  await page.locator('#list [data-n]').nth(0).click();
+  await page.locator('#list [data-n]').nth(1).click();
+  await page.waitForSelector('.bulkbar >> text=2 selected');
+  await page.screenshot({ path: `${shots}/select.png` });
+  await page.click('[data-bulk=exit]');
   await page.screenshot({ path: `${shots}/notes.png` });
 
   await page.keyboard.press('/');

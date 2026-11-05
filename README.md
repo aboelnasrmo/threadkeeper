@@ -1,6 +1,6 @@
 # threadkeeper
 
-**Version 0.13.1** · [Changelog](CHANGELOG.md)
+**Version 0.14.0** · [Changelog](CHANGELOG.md) · [![tests](https://github.com/aboelnasrmo/threadkeeper/actions/workflows/test.yml/badge.svg)](https://github.com/aboelnasrmo/threadkeeper/actions/workflows/test.yml) on macOS, Windows and Linux
 
 Personal, local-only memory for Claude Code. Built so Claude never loses its place: not after a long session, not after the context is compacted, not next week. No account, no hosted service, no extra dependencies. Inspired by [claude-mem](https://github.com/thedotmack/claude-mem); written from scratch to be small, local-only and token-lean.
 
@@ -72,6 +72,9 @@ flowchart LR
 | Every day | A backup of the database is saved in `~/.threadkeeper/backups` (last 7 kept). `restore` lists them and brings one back. |
 | You want to see your week | The viewer's **This week** tab (or `week`) lists per project what you worked on, what got done, decisions, hard-won lessons and todos. It is never loaded into Claude, so it costs no tokens. |
 | Later work finishes a todo | The summarizer sees the open todos and closes the ones that got done. |
+| You say "off the record" | That session is kept out of memory: what was captured so far is deleted and nothing more is saved or synced (memory still loads). "Back on the record" undoes it. To stop recording everything for a while, use **Pause** in the viewer or `pause [hours]` / `resume`. |
+| Notes are recalled | threadkeeper learns which recalled notes Claude actually uses (opens them, mentions their `#id`, or works on their files). A note shown 4 times and never used stops loading by itself for 30 days (pinned notes always load). It stays searchable, so nothing is lost and context gets leaner. The viewer shows the share of recalled notes used. |
+| You want teammates' Claude to know the project | `share --link` (or **Share with team** in the viewer) writes the brief's essentials, decisions and gotchas to `.claude/team-memory.md` and imports it from `CLAUDE.md`. Teammates get it from the repo, even without threadkeeper. It refreshes itself daily. |
 
 Search matches by meaning without a vector database: every note gets 6-10 related words from the summary model when it's written (older and imported notes get them in small background batches), so "database" finds the PostgreSQL note and "android deep link" finds the App Links one, with no model call at search time. Newer notes rank higher.
 
@@ -87,7 +90,10 @@ Starts by itself with Claude Code at http://localhost:37777 and only answers on 
 
 - **Overview** (click the logo): notes, sessions, todos and tokens at a glance (per project too: tokens added, tokens saved by skipped re-reads, summary-model calls), a 30-day activity chart, what kinds of notes you have, the latest notes, and the project brief Claude sees first.
 - **Browse and search** every project (including imported claude-mem history). Notes are colour-coded by type, and search highlights matches (press `/`).
-- **Keep memory accurate**: pin notes so they always load, edit, mark outdated or forget them, close todos, and see notes whose files changed a lot ("needs a check").
+- **Keep memory accurate**: pin notes so they always load, edit, mark outdated or forget them, close todos, and see notes whose files changed a lot ("needs a check"). **Select** several notes to pin, mark outdated or forget them at once.
+- **Search by meaning**: when words find little, one click asks the summary model for related terms (cached), as Claude's own search does.
+- **Export** a project's notes as one Markdown file, or **share** the key ones with your team.
+- **Pause** recording for an hour, a day or until you resume; make a single session private after the fact.
 - **Replay sessions**: every prompt and tool call, with long runs folded and filters for your prompts or failures.
 - Light, dark or automatic theme; keyboard shortcuts (press `?`); works on a phone-sized window.
 
@@ -174,11 +180,13 @@ node $M brief [--refresh]   # show or rebuild the project brief
 node $M recover [--all] [N] # rebuild sessions threadkeeper missed from Claude Code transcripts
 node $M import-claude-memory # bring in Claude Code memory files from every project
 node $M export [folder] [out]  # the project's memory as Markdown files (for Obsidian, backups)
-node $M usage [days]    # tokens threadkeeper added to Claude's context, and summary-model calls
+node $M usage [days]    # tokens threadkeeper added to Claude's context, summary-model calls, share of recalled notes used
+node $M share [--link]  # write decisions and gotchas to .claude/team-memory.md for teammates
+node $M pause [hours]   # stop recording everything (memory still loads); resume with: resume
 node $M doctor          # version, node, database, claude CLI, plugin, sync, Desktop, recent problems
 ```
 
-Wrap anything in `<private>...</private>` in a prompt to keep it out of memory. API keys, tokens, passwords in `key=value` form and `.env` contents are redacted automatically.
+Wrap anything in `<private>...</private>` in a prompt to keep it out of memory, or say "off the record" to keep the whole session out. API keys, tokens, passwords in `key=value` form and `.env` contents are redacted automatically.
 
 ## Settings
 
@@ -206,25 +214,22 @@ Wrap anything in `<private>...</private>` in a prompt to keep it out of memory. 
 | `showStatus` | `true` | one "memory loaded" line for you at session start |
 | `tagNotes` | `true` | background search tags for older notes (a few batched calls per project per day) |
 | `rereadGuard` / `rereadMinBytes` | `true` / `3000` | stop re-reads of unchanged files still in context |
+| `learnFromUse` | `true` | stop auto-loading notes Claude keeps ignoring (they stay searchable) |
 
 Problems are logged to `~/.threadkeeper/errors.log`; hooks never block Claude.
 
 ## Test
 
-`npm test` runs the whole pipeline (capture, redaction, summaries, todos, compaction, MCP tools, import, viewer API, a browser test when Playwright is installed, and fuzz tests) against a fake `claude`.
+`npm test` runs the whole pipeline (capture, redaction, summaries, todos, compaction, MCP tools, import, viewer API, a browser test when Playwright is installed, and fuzz tests) against a fake `claude`. `node test/smoke.mjs` checks the main paths with Node only, so it also runs on Windows; GitHub Actions runs it on macOS, Windows and Linux (Node 22 and 24) for every push.
 
 `node test/bench.mjs 200000` measures speed at scale. On 200,000 notes (168 MB): session start 28 ms, file recall 28 ms, per-prompt recall 134 ms, project search 112 ms.
+
+## Contributing
+
+Issues and pull requests are welcome. Run `bash test/run.sh` (full suite) and `node test/smoke.mjs` (also runs on Windows) before sending a change. Both need Node 22.13+ and use a fake `claude`, so no model calls. GitHub Actions runs them on macOS, Windows and Linux for every push.
 
 ## Credits and license
 
 Inspired by [claude-mem](https://github.com/thedotmack/claude-mem) by Alex Newman, which showed how useful memory across Claude Code sessions can be. This is an independent project written from scratch; it shares no code with claude-mem and is not affiliated with or endorsed by it. It can import your existing claude-mem history.
 
-MIT licensed, see [LICENSE](LICENSE).
-
-## Contributing
-
-Issues and pull requests are welcome. Run `bash test/run.sh` before sending a change (needs Node 22.13+; uses a fake `claude`, so no model calls).
-
-## License
-
-MIT. Your notes never leave your machines (or the sync folder you choose); there is no telemetry.
+MIT licensed, see [LICENSE](LICENSE). Your notes never leave your machines (or the sync folder you choose); there is no telemetry.

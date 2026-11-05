@@ -1,0 +1,31 @@
+name: tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: ${{ matrix.os }} · Node ${{ matrix.node }}
+    # Public repos get these runners free; a private copy skips them instead of spending Actions minutes.
+    if: ${{ !github.event.repository.private }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Cross-platform smoke test
+        run: node test/smoke.mjs
+      - name: Full test suite
+        if: runner.os == 'Linux'
+        run: bash test/run.sh

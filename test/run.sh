@@ -91,7 +91,7 @@ CC="$(j '{"source":"compact"}' | $H SessionStart)"
 [[ "$CC" == *"This session so far"* && "$CC" == *"build the a.ts module"* && "$CC" == *"Files changed in this session: a.ts"* ]] || fail "post-compact context: $CC"
 [[ "$(j '{"source":"startup"}' | S=sess-4b $H SessionStart)" == *"This session so far"* ]] && fail "fresh session should not get 'this session'"
 j '{"reason":"exit"}' | $H SessionEnd
-[[ "$(q "select summarized from sessions where id='sess-4'")" == '[{"summarized":1}]' ]] || fail "nothing new after partial -> done"
+[[ "$(q "select summarized from sessions where id='sess-4'")" == '[{"summarized":1}]' ]] || fail "nothing new after partial -> done: $(q "select summarized, summarized_upto, tool_calls, prompts, edits from sessions where id='sess-4'")"
 
 echo "6. summarizer failures retry then give up; lock prevents double runs"
 S=sess-5
@@ -171,6 +171,12 @@ HOMEJ="$(curl -s localhost:37791/api/home)"
 [[ "$(node -p 'const h=JSON.parse(process.argv[1]); h.usageByProject.length > 0 && h.usageByProject[0].added > 0 && h.usage.injected.tokens > 0' "$HOMEJ")" == true ]] || fail "usage per project: $HOMEJ"
 UP="$(node -p 'JSON.parse(process.argv[1]).usageByProject[0].project' "$HOMEJ")"
 [[ "$(curl -s "localhost:37791/api/home?project=$(node -p 'encodeURIComponent(process.argv[1])' "$UP")")" == *'"injected":{"times":'*'"usageByProject":[]'* ]] || fail "project usage"
+BULK="$(curl -s -XPOST -H 'x-threadkeeper: 1' -H 'content-type: application/json' -d '{"ids":[2,3],"action":"pin"}' localhost:37791/api/notes/bulk)"
+[[ "$BULK" == *'"changed":2'* && "$(q 'select count(*) n from memories where id in (2,3) and pinned=1')" == '[{"n":2}]' ]] || fail "bulk pin: $BULK"
+[[ "$(curl -s -XPOST -H 'x-threadkeeper: 1' -d '{"ids":[2],"action":"nuke"}' localhost:37791/api/notes/bulk)" == *'unknown action'* ]] || fail "bulk rejects unknown actions"
+EXP="$(curl -s -D - "localhost:37791/api/export?project=$(node -p 'encodeURIComponent(process.argv[1])' "$PROJ")")"
+[[ "$EXP" == *'attachment; filename='*'-memory.md'* && "$EXP" == *'## Bug fixes'* && "$EXP" == *'Files: `src/auth/validate.ts`'* ]] || fail "export: ${EXP:0:500}"
+[[ "$(curl -s 'localhost:37791/api/notes?q=database&smart=1')" == *'"also":["postgresql"'* ]] || fail "viewer meaning search"
 [[ "$(curl -s 'localhost:37791/api/notes?stale=1')" == *'"total":0'* ]] || fail "stale filter"
 UPD="$(curl -s -XPOST -H 'x-threadkeeper: 1' -H 'content-type: application/json' -d '{"pinned":true,"body":"edited <b>body</b>"}' localhost:37791/api/notes/1)"
 [[ "$UPD" == *'"pinned":1'* && "$UPD" == *'edited <b>body</b>'* ]] || fail "note update: $UPD"
@@ -477,6 +483,60 @@ N "$THREADKEEPER_HOME" "import {projectKey} from '$ROOT/src/sync.mjs'; import {r
   const ok = projectKey('C:\\\\Users\\\\me\\\\My-App')==='my-app' && projectKey('/Users/me/my-app')==='my-app' && projectKey('general')==='general'
     && relPath('/a/app','/a/app/src/x.js')==='src/x.js' && relPath('/a/app','/a/app2/x.js')==='/a/app2/x.js';
   if (!ok) throw new Error('cross-os keys')" || fail "cross-OS project keys and paths"
+echo "19. off the record: one session, or a pause for everything"
+S=sess-70; j '{}' | $H SessionStart >/dev/null
+j '{"prompt":"look at the billing code"}' | $H UserPromptSubmit >/dev/null
+for i in 1 2 3; do j '{"tool_name":"Bash","tool_input":{"command":"ls '$i'"}}' | $H PostToolUse; done
+OFFR="$(j '{"prompt":"off the record please, this is about salaries"}' | $H UserPromptSubmit)"
+[[ "$OFFR" == *"off the record"* ]] || fail "off the record reply: $OFFR"
+for i in 1 2 3 4 5 6; do j '{"tool_name":"Edit","tool_input":{"file_path":"'"$PROJ"'/salaries.md"}}' | $H PostToolUse; done
+j '{"prompt":"next one"}' | $H UserPromptSubmit >/dev/null
+[[ "$(q "select count(*) n from events where session_id='sess-70'")" == '[{"n":0}]' ]] || fail "private session keeps no events"
+j '{"reason":"exit"}' | $H SessionEnd
+[[ "$(q "select summarized from sessions where id='sess-70'")" == '[{"summarized":-1}]' ]] || fail "private session is not summarized"
+[[ "$(N "$THREADKEEPER_HOME" "import {privacyCommand} from '$ROOT/src/privacy.mjs'; console.log([privacyCommand(\"don't remember this session\"), privacyCommand('Back on the record'), privacyCommand('why does the app not remember this setting?'), privacyCommand('fix it')].join(','))")" == "off,on,," ]] || fail "privacy phrases"
+node --no-warnings "$ROOT/src/cli.mjs" pause 2 | grep -q "Paused until" || fail "pause"
+S=sess-71
+[[ "$(j '{}' | $H SessionStart)" == *"threadkeeper is paused"* ]] || fail "paused notice at start"
+j '{"prompt":"refactor the parser"}' | $H UserPromptSubmit >/dev/null
+for i in 1 2 3 4 5 6; do j '{"tool_name":"Edit","tool_input":{"file_path":"'"$PROJ"'/p.ts"}}' | $H PostToolUse; done
+j '{"reason":"exit"}' | $H SessionEnd
+[[ "$(q "select count(*) n from events where session_id='sess-71'")" == '[{"n":0}]' ]] || fail "paused: no capture"
+node --no-warnings "$ROOT/src/cli.mjs" resume | grep -q "Remembering again" || fail "resume"
+S=sess-72; j '{"prompt":"hello there friend"}' | $H UserPromptSubmit >/dev/null
+[[ "$(q "select count(*) n from events where session_id='sess-72'")" == '[{"n":1}]' ]] || fail "resumed: capture works"
+echo "20. learn which recalled notes Claude uses; mute the ones it never does"
+PL="$(mktemp -d)"; mkdir -p "$PL/src"; git -C "$PL" init -q
+N "$THREADKEEPER_HOME" "import {openDb,insertMemory} from '$ROOT/src/db.mjs'; const d=openDb();
+  insertMemory(d,{project:'$PL',type:'gotcha',title:'Alpha cache needs a warmup',body:'a',files:['a.ts']});
+  insertMemory(d,{project:'$PL',type:'decision',title:'Beta queue uses Redis',body:'b'});
+  insertMemory(d,{project:'$PL',type:'discovery',title:'Gamma retry noise',body:'c'});
+  insertMemory(d,{project:'$PL',type:'note',title:'Delta deploy steps',body:'d'});"
+DID="$(q "select id from memories where title='Delta deploy steps'" | grep -o '[0-9]*')"
+BID="$(q "select id from memories where title='Beta queue uses Redis'" | grep -o '[0-9]*')"
+TR="$PL/t.jsonl"; echo '{"type":"assistant","message":{"content":[{"type":"text","text":"Following note #'"$DID"' for the deploy."}]}}' > "$TR"
+jl() { node -e 'console.log(JSON.stringify(Object.assign({session_id:process.argv[1],cwd:process.argv[2],transcript_path:process.argv[3]},JSON.parse(process.argv[4]))))' "$S" "$PL/src" "$TR" "$1"; }
+for i in 1 2 3 4; do
+  S=learn-$i
+  [[ "$(jl '{}' | $H SessionStart)" == *"Gamma retry noise"* ]] || fail "unused note still shown before it is muted ($i)"
+  jl '{"tool_name":"mcp__plugin_threadkeeper_threadkeeper__get","tool_input":{"ids":['"$BID"']}}' | $H PostToolUse
+  jl '{"tool_name":"Read","tool_input":{"file_path":"'"$PL"'/a.ts"}}' | $H PostToolUse
+  jl '{"reason":"exit"}' | $H SessionEnd
+  waitfor "select count(*) n from injected_files where session_id='learn-$i'" '[{"n":0}]'
+done
+[[ "$(q "select title, shown_count s, used_count u from memories where project='$PL' order by id")" == '[{"title":"Alpha cache needs a warmup","s":4,"u":4},{"title":"Beta queue uses Redis","s":4,"u":4},{"title":"Gamma retry noise","s":4,"u":0},{"title":"Delta deploy steps","s":4,"u":4}]' ]] || fail "use counts: $(q "select title, shown_count, used_count from memories where project='$PL'")"
+S=learn-5; L5="$(jl '{}' | $H SessionStart)"
+[[ "$L5" != *"Gamma retry noise"* && "$L5" == *"Beta queue uses Redis"* ]] || fail "never-used note is muted: ${L5:0:600}"
+[[ "$(node --no-warnings "$ROOT/src/cli.mjs" usage)" == *"recalled notes Claude used: "*"never-used note(s) no longer load"* ]] || fail "usage shows recall rate: $(node --no-warnings "$ROOT/src/cli.mjs" usage)"
+[[ "$(N "$THREADKEEPER_HOME" "import {recallStats} from '$ROOT/src/learn.mjs'; const r=recallStats('$PL'); console.log(r.rate, r.quiet)")" == "0.75 1" ]] || fail "project recall stats"
+echo "21. team memory file for teammates"
+SH="$(node --no-warnings "$ROOT/src/cli.mjs" share "$PROJ" --link)"
+[[ "$SH" == *"CLAUDE.md imports it"* ]] || fail "share: $SH"
+grep -q "^## Gotchas" "$PROJ/.claude/team-memory.md" && grep -q "Deploy needs VPN" "$PROJ/.claude/team-memory.md" || fail "team memory content: $(cat "$PROJ/.claude/team-memory.md")"
+grep -q "ESSENTIALMARK" "$PROJ/.claude/team-memory.md" || fail "team memory has the brief essentials"
+grep -qE "sk-[A-Za-z0-9]{10}|ghp_[A-Za-z0-9]{10}" "$PROJ/.claude/team-memory.md" && fail "team memory must not carry secrets"
+node --no-warnings "$ROOT/src/cli.mjs" share "$PROJ" --link >/dev/null
+[[ "$(grep -c '@.claude/team-memory.md' "$PROJ/CLAUDE.md")" == 1 ]] || fail "CLAUDE.md import added once"
 # Every release names its version in the README and the changelog.
 V="$(node -p "require('$ROOT/package.json').version")"
 [[ "$(node -p "require('$ROOT/.claude-plugin/plugin.json').version")" == "$V" ]] || fail "plugin.json version"

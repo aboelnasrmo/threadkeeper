@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { HOME, loadConfig, VERSION } from './config.mjs';
 import { openDb, filesOf, resolveTodos, updateMemory, MEMORY_TYPES, markSuperseded, usageSummary, usageByProject, RANK } from './db.mjs';
 import { healthProblems } from './health.mjs';
-import { ftsQuery } from './mcp.mjs';
+import { ftsQuery, expandQuery, loadHelpers } from './mcp.mjs';
 import { spawnSummarizer } from './hook.mjs';
 
 const PORT = Number(process.env.THREADKEEPER_PORT) || 37777;
@@ -32,9 +32,9 @@ function readJson(req) {
   });
 }
 
-function notesQuery(d, { project, type, q, includeDone, includeOld, pinned, stale, offset = 0, limit = 50 }) {
+function notesQuery(d, { project, type, q, includeDone, includeOld, pinned, stale, offset = 0, limit = 50, also = [] }) {
   // Each condition carries its own args so the type filter can be dropped for the chip counts.
-  const fq = q ? ftsQuery(q) : '';
+  const fq = q ? ftsQuery(also.length ? q + ' ' + also.join(' ') : q, also.length ? 36 : undefined) : '';
   const conds = [];
   if (fq) conds.push(['memories_fts MATCH ?', [fq]]);
   if (project) conds.push(['m.project = ?', [project]]);
@@ -56,6 +56,26 @@ function notesQuery(d, { project, type, q, includeDone, includeOld, pinned, stal
   return { total, typeCounts, items: withFiles(d, items) };
 }
 
+const TYPE_TITLES = { decision: 'Decisions', gotcha: 'Gotchas', bugfix: 'Bug fixes', feature: 'Features', refactor: 'Refactors', discovery: 'Discoveries', todo: 'Todos', note: 'Notes', session: 'Sessions' };
+/** One readable Markdown file with a project's live notes: brief first, then one section per kind. */
+export function exportMarkdown(project, rows) {
+  const out = [`# ${path.basename(project)}: memory`, '', `Exported ${new Date().toISOString().slice(0, 10)} · ${rows.length} notes`, ''];
+  const brief = rows.find((m) => m.type === 'brief');
+  if (brief) out.push('## Project brief', '', brief.body.replace(/^#+ /gm, '### '), '');
+  const by = {};
+  for (const m of rows) if (m.type !== 'brief') (by[m.type] ||= []).push(m);
+  for (const t of Object.keys(TYPE_TITLES)) {
+    if (!by[t]) continue;
+    out.push(`## ${TYPE_TITLES[t]}`, '');
+    for (const m of by[t]) {
+      out.push(`### ${m.title}`, `_${m.created_at.slice(0, 10)} · #${m.id}${m.pinned ? ' · pinned' : ''}${m.status ? ' · ' + m.status : ''}_`, '', m.body);
+      if (m.files?.length) out.push('', 'Files: ' + m.files.map((f) => '`' + f + '`').join(', '));
+      out.push('');
+    }
+  }
+  return out.join('\n');
+}
+
 async function api(url, method, req) {
   const d = openDb();
   const p = url.pathname;
@@ -69,6 +89,17 @@ async function api(url, method, req) {
   // A newer threadkeeper asks an older running viewer to step aside so it can start the current code.
   if (method === 'POST' && p === '/api/restart') {
     setTimeout(() => process.exit(0), 50);
+    return [200, { ok: true }];
+  }
+
+  if (method === 'POST' && p === '/api/pause') {
+    const priv = await import('./privacy.mjs');
+    const body = await readJson(req);
+    if (body.resume) priv.resume(d); else priv.pause(Number(body.hours) || 0, d);
+    return [200, { paused: priv.pausedUntil(d) }];
+  }
+  if (method === 'POST' && (m = p.match(/^\/api\/sessions\/([\w.-]+)\/private$/))) {
+    (await import('./privacy.mjs')).makePrivate(m[1], d);
     return [200, { ok: true }];
   }
 
@@ -97,6 +128,7 @@ async function api(url, method, req) {
       recent: withFiles(d, d.prepare(`SELECT * FROM memories ${where} ${where ? 'AND' : 'WHERE'} type NOT IN ('brief', 'session') AND superseded_at IS NULL ORDER BY created_at DESC, id DESC LIMIT 6`).all(...pa)),
       todos: d.prepare(`SELECT id, title, created_at FROM memories ${where} ${where ? 'AND' : 'WHERE'} type = 'todo' AND status = 'open' AND superseded_at IS NULL ORDER BY id DESC LIMIT 6`).all(...pa),
       usage: usageSummary(7, project),
+      recall: (await import('./learn.mjs')).recallStats(project, d),
       usageByProject: project ? [] : usageByProject(7),
       stale: d.prepare(`SELECT count(*) n FROM memories ${where} ${where ? 'AND' : 'WHERE'} stale_at IS NOT NULL AND superseded_at IS NULL`).get(...pa).n,
     }];
@@ -124,6 +156,7 @@ async function api(url, method, req) {
          ) GROUP BY project ORDER BY last DESC`
       ).all(),
       outdated: n('SELECT count(*) n FROM memories WHERE superseded_at IS NOT NULL'),
+      paused: (await import('./privacy.mjs')).pausedUntil(d),
       health: healthProblems(loadConfig()),
       usage: usageSummary(7),
       errors: (() => {
@@ -137,22 +170,27 @@ async function api(url, method, req) {
     return [200, d.prepare(
       `SELECT s.*, (SELECT count(*) FROM memories m WHERE m.session_id = s.id) memories,
          (SELECT body FROM memories m WHERE m.session_id = s.id AND m.type = 'session' ORDER BY id DESC LIMIT 1) summary,
-         (SELECT detail FROM events e WHERE e.session_id = s.id AND e.kind = 'prompt' ORDER BY id LIMIT 1) first_prompt
-       FROM sessions s WHERE (s.prompts + s.tool_calls) > 0 ${project ? 'AND s.project = ?' : ''} ORDER BY s.last_activity DESC LIMIT 100`
+         (SELECT detail FROM events e WHERE e.session_id = s.id AND e.kind = 'prompt' ORDER BY id LIMIT 1) first_prompt,
+         EXISTS (SELECT 1 FROM sync_state WHERE key = 'private:' || s.id) private
+       FROM sessions s WHERE ((s.prompts + s.tool_calls) > 0 OR EXISTS (SELECT 1 FROM sync_state WHERE key = 'private:' || s.id)) ${project ? 'AND s.project = ?' : ''} ORDER BY s.last_activity DESC LIMIT 100`
     ).all(...(project ? [project] : []))];
   }
   if (method === 'GET' && (m = p.match(/^\/api\/sessions\/([\w.-]+)$/))) {
     const s = d.prepare('SELECT * FROM sessions WHERE id = ?').get(m[1]);
     if (!s) return [404, { error: 'not found' }];
     return [200, {
-      session: s,
+      session: { ...s, private: !!d.prepare('SELECT 1 FROM sync_state WHERE key = ?').get('private:' + s.id) },
       memories: withFiles(d, d.prepare("SELECT * FROM memories WHERE session_id = ? ORDER BY (type = 'session') DESC, id").all(s.id)),
       events: d.prepare('SELECT * FROM events WHERE session_id = ? ORDER BY id').all(s.id),
     }];
   }
   if (method === 'GET' && p === '/api/notes') {
     const type = q('type');
-    return [200, notesQuery(d, {
+    // "Search by meaning": the summary model suggests related words once per query (cached), as the search tool does.
+    let also = [];
+    if (q('smart') === '1' && q('q')) { await loadHelpers(); also = expandQuery(q('q')); }
+    const r = notesQuery(d, {
+      also,
       project: q('project') || null,
       type: MEMORY_TYPES.includes(type) ? type : null,
       q: q('q') || '',
@@ -162,7 +200,33 @@ async function api(url, method, req) {
       stale: q('stale') === '1',
       offset: Math.max(0, Number(q('offset')) || 0),
       limit: Math.min(200, Math.max(1, Number(q('limit')) || 50)),
-    })];
+    });
+    return [200, { ...r, also }];
+  }
+  if (method === 'POST' && p === '/api/notes/bulk') {
+    const body = await readJson(req);
+    const ids = (Array.isArray(body.ids) ? body.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 500);
+    let n = 0;
+    for (const id of ids) {
+      if (body.action === 'forget') n += Number(d.prepare('DELETE FROM memories WHERE id = ?').run(id).changes);
+      else if (body.action === 'outdated') { markSuperseded(d, null, [id], 'marked in the viewer'); n++; }
+      else if (body.action === 'pin' || body.action === 'unpin') n += updateMemory(d, id, { pinned: body.action === 'pin' }) ? 1 : 0;
+      else if (body.action === 'done') n += updateMemory(d, id, { status: 'done' }) ? 1 : 0;
+      else return [400, { error: 'unknown action' }];
+    }
+    return [200, { ok: true, changed: n }];
+  }
+  if (method === 'POST' && p === '/api/share') {
+    const body = await readJson(req);
+    const known = d.prepare('SELECT 1 FROM sessions WHERE project = ? LIMIT 1').get(String(body.project || ''));
+    if (!known || !fs.existsSync(String(body.project))) return [400, { error: 'not a project folder on this machine' }];
+    return [200, (await import('./share.mjs')).share(String(body.project), { link: !!body.link })];
+  }
+  if (method === 'GET' && p === '/api/export') {
+    const project = q('project');
+    const rows = d.prepare(`SELECT * FROM memories WHERE project = ? AND superseded_at IS NULL ORDER BY type = 'brief' DESC, type, created_at DESC`).all(project || '');
+    const md = exportMarkdown(project || '', withFiles(d, rows));
+    return [200, md, { 'content-type': 'text/markdown; charset=utf-8', 'content-disposition': `attachment; filename="${path.basename(project || 'notes').replace(/[^\w.-]+/g, '-')}-memory.md"` }];
   }
   if (method === 'GET' && (m = p.match(/^\/api\/notes\/(\d+)$/))) {
     const note = d.prepare('SELECT * FROM memories WHERE id = ?').get(Number(m[1]));
@@ -216,7 +280,8 @@ export function startViewer(port = PORT, { quiet = false } = {}) {
         });
         return res.end(fs.readFileSync(PAGE));
       }
-      const [code, body] = await api(url, req.method, req);
+      const [code, body, headers] = await api(url, req.method, req);
+      if (headers) { res.writeHead(code, { 'cache-control': 'no-store', ...headers }); return res.end(body); }
       res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
       res.end(JSON.stringify(body));
     } catch (e) {

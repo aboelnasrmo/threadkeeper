@@ -141,6 +141,12 @@ const MIGRATIONS = [
   `
   ALTER TABLE memories ADD COLUMN stale_at TEXT;
   `,
+  // v8 -> v9: how often a note was put in Claude's context, and how often Claude then used it (per machine; not synced)
+  `
+  ALTER TABLE memories ADD COLUMN shown_count INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE memories ADD COLUMN used_count INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE memories ADD COLUMN last_shown_at TEXT;
+  `,
 ];
 
 /** Search ranking: BM25 (title > tags > body), with newer notes up to 1.5x stronger over the past year. */

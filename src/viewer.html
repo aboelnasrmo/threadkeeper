@@ -73,6 +73,9 @@
   .sub { color: var(--muted); font-size: 12px; }
   .bar { height: 3px; border-radius: 2px; background: var(--line); margin-top: 4px; overflow: hidden; }
   .bar i { display: block; height: 100%; background: var(--accent); opacity: .7; }
+  .bulkbar { position: sticky; top: 41px; z-index: 1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 12px; background: var(--accent-soft); border-bottom: 1px solid var(--line); font-size: 13px; }
+  .ck { margin-right: 6px; color: var(--accent); }
+  a.btn { text-decoration: none; color: inherit; display: inline-block; }
   .wk-h { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 10px 16px 2px; }
   .item.wk { padding: 6px 16px; }
   .clip { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -105,6 +108,7 @@
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
   .btn { font-size: 12px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; }
   .btn:hover { border-color: var(--muted); }
+  #pausebtn.on { background: color-mix(in srgb, var(--warn) 18%, transparent); border-color: var(--warn); color: var(--warn); font-weight: 600; }
   .btn.primary { border-color: var(--accent); color: var(--accent); }
   .btn.danger:hover { border-color: var(--err); color: var(--err); }
   .btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
@@ -188,6 +192,7 @@
   <div class="stats" id="stats" aria-live="polite"></div>
   <div class="hdr-right">
     <div class="live" role="status"><span class="dot" aria-hidden="true"></span><span id="tick">live</span></div>
+    <button class="btn" id="pausebtn" title="Stop or resume remembering new sessions"></button>
     <button class="icon-btn" id="theme" title="Theme: auto" aria-label="Switch theme"></button>
     <button class="icon-btn" id="help" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
   </div>
@@ -207,6 +212,15 @@
   <section class="detail" id="detail" aria-label="Details" aria-live="polite"></section>
 </main>
 <div class="toast" id="toast" role="status"></div>
+<dialog id="pausedlg" aria-label="Pause memory">
+  <h3 style="margin:0 0 6px">Pause memory</h3>
+  <p class="sub" style="margin:0 0 12px">Claude still gets its memory, but nothing new is saved or synced. For a single session, you can also tell Claude “off the record”.</p>
+  <div class="row" style="margin:0">
+    <button class="btn" data-pause="1">1 hour</button><button class="btn" data-pause="4">4 hours</button>
+    <button class="btn" data-pause="24">24 hours</button><button class="btn primary" data-pause="0">Until I resume</button>
+  </div>
+  <form method="dialog" style="margin-top:14px;text-align:right"><button class="btn">Cancel</button></form>
+</dialog>
 <dialog id="keys" aria-label="Keyboard shortcuts">
   <h3 style="margin:0 0 10px">Keyboard shortcuts</h3>
   <table>
@@ -218,6 +232,7 @@
     <tr><td><kbd>d</kbd></td><td>Mark the open todo done</td></tr>
     <tr><td><kbd>h</kbd> or <kbd>Esc</kbd></td><td>Back to the overview</td></tr>
     <tr><td><kbd>t</kbd></td><td>Switch theme</td></tr>
+    <tr><td colspan="2" class="sub" style="padding-top:10px">Tell Claude “off the record” to keep one session out of memory.</td></tr>
   </table>
   <form method="dialog" style="margin-top:14px;text-align:right"><button class="btn">Close</button></form>
 </dialog>
@@ -238,7 +253,8 @@ const setHTML = (el, html) => { if (el._html === html) return false; el._html = 
 const store = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
 const saved = store.get('threadkeeper-view', {});
 const state = { project: saved.project ?? null, tab: saved.tab || 'notes', type: null, query: '', done: false, old: false, stale: false,
-  sel: null /* {kind:'note'|'session', id} */, phoneHome: false, limit: 50, editing: false, evFilter: 'all', pfilter: '' };
+  sel: null /* {kind:'note'|'session', id} */, phoneHome: false, limit: 50, editing: false, evFilter: 'all', pfilter: '', selecting: false, smart: false };
+const picked = new Set();
 const persist = () => store.set('threadkeeper-view', { project: state.project, tab: state.tab });
 let overview = { types: [], projects: [], counts: {} };
 let current = null; // the note or session open in the detail panel
@@ -260,6 +276,7 @@ function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add
 async function copy(text, what = 'Copied') { try { await navigator.clipboard.writeText(text); toast(what); } catch { toast('Copy not allowed here'); } }
 
 function sessionStatus(s) {
+  if (s.private) return '<span class="pill">off the record</span>';
   if (!s.ended_at) return '<span class="pill warn">in progress</span>';
   if (s.summarized === 1) return '<span class="pill ok">remembered</span>';
   if (s.summarized === -1) return s.summarize_attempts >= 3 ? '<span class="pill err">summary failed</span>' : '<span class="pill">too small, skipped</span>';
@@ -284,6 +301,10 @@ async function loadOverview() {
   const c = overview.counts;
   setHTML($('stats'), `<span><b>${fmtK(c.memories)}</b> notes</span><span><b>${c.sessions}</b> sessions</span><span><b>${c.todos}</b> open todos</span>` +
     (c.pending ? `<span><b>${c.pending}</b> summarizing</span>` : ''));
+  const pb = $('pausebtn');
+  const pausedLabel = overview.paused ? (overview.paused === 'forever' ? 'Paused · resume' : `Paused until ${new Date(overview.paused).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · resume`) : 'Pause';
+  if (pb.textContent !== pausedLabel) pb.textContent = pausedLabel;
+  pb.classList.toggle('on', !!overview.paused);
   const max = Math.max(1, ...overview.projects.map((p) => p.memories));
   const pf = state.pfilter.toLowerCase();
   const proj = (p) => `<button class="item" data-p="${esc(p.project)}" aria-current="${state.project === p.project}" title="${esc(p.project)}">
@@ -337,17 +358,25 @@ async function loadList() {
     return;
   }
   const isTodos = state.tab === 'todos';
-  const r = await get('/api/notes' + qs({ project: state.project, type: isTodos ? 'todo' : state.type, q: state.query, done: state.done ? 1 : '', old: state.old ? 1 : '', stale: !isTodos && state.stale ? 1 : '', limit: state.limit }));
+  const r = await get('/api/notes' + qs({ project: state.project, type: isTodos ? 'todo' : state.type, q: state.query, smart: state.smart && state.query ? 1 : '', done: state.done ? 1 : '', old: state.old ? 1 : '', stale: !isTodos && state.stale ? 1 : '', limit: state.limit }));
   const chips = isTodos
     ? `<div class="chips"><button class="chip" id="showdone" aria-pressed="${state.done}">Show finished</button></div>`
     : `<div class="chips" role="group" aria-label="Filter by type"><button class="chip" data-t="" aria-pressed="${!state.type}">all ${Object.values(r.typeCounts).reduce((a, b) => a + b, 0)}</button>` +
       overview.types.filter((t) => r.typeCounts[t]).map((t) => `<button class="chip" data-t="${t}" style="${tc(t)}" aria-pressed="${state.type === t}">${t} ${r.typeCounts[t]}</button>`).join('') +
       `<button class="chip" id="showstale" aria-pressed="${state.stale}" title="Notes whose files changed a lot since they were written">needs a check</button>` +
       (overview.outdated ? `<button class="chip" id="showold" aria-pressed="${state.old}">show outdated</button>` : '') + '</div>';
-  setHTML(list, chips + (state.query ? `<div class="sub" style="padding:8px 16px">${r.total} matches for “${esc(state.query)}”</div>` : '') +
+  const selChip = `<button class="chip" id="selmode" aria-pressed="${state.selecting}" title="Pick several notes to pin, mark outdated or forget at once">Select</button>`;
+  const chipsAll = chips.replace(/<\/div>$/, selChip + '</div>');
+  const smartRow = !state.query ? '' : r.also?.length ? `<div class="sub" style="padding:0 16px 8px">Also searched by meaning: ${esc(r.also.join(', '))}</div>`
+    : !state.smart && r.total < 5 ? `<div style="padding:0 12px 8px"><button class="btn" id="smart" title="Asks the summary model once for related words (cached), like Claude's own search does">Search by meaning too</button></div>` : '';
+  const bulk = state.selecting ? `<div class="bulkbar" role="toolbar" aria-label="Selected notes"><span><b>${picked.size}</b> selected</span>
+      <button class="btn" data-bulk="all">Select all shown</button><button class="btn" data-bulk="pin">Pin</button><button class="btn" data-bulk="unpin">Unpin</button>
+      ${isTodos ? '<button class="btn" data-bulk="done">Mark done</button>' : ''}<button class="btn" data-bulk="outdated">Mark outdated</button>
+      <button class="btn danger" data-bulk="forget">Forget</button><button class="btn" data-bulk="exit">Done</button></div>` : '';
+  setHTML(list, bulk + chipsAll + (state.query ? `<div class="sub" style="padding:8px 16px">${r.total} matches for “${esc(state.query)}”</div>` : '') + smartRow +
     (r.items.length ? r.items.map((m) => `
-      <button class="item" data-n="${m.id}" aria-current="${cur('note', m.id)}">
-        <div>${typePill(m)}<span class="sub">${esc(m.created_at.slice(0, 10))}${state.project ? '' : ' · ' + esc(projName(m.project))}</span></div>
+      <button class="item" data-n="${m.id}" aria-current="${cur('note', m.id)}" ${state.selecting ? `aria-pressed="${picked.has(m.id)}"` : ''}>
+        <div>${state.selecting ? `<span class="ck" aria-hidden="true">${picked.has(m.id) ? '☑' : '☐'}</span>` : ''}${typePill(m)}<span class="sub">${esc(m.created_at.slice(0, 10))}${state.project ? '' : ' · ' + esc(projName(m.project))}</span></div>
         <div class="name">${highlight(m.title)}</div>
         <div class="sub clip">${highlight(m.body)}</div>
       </button>`).join('') : `<div class="empty">${isTodos ? 'Nothing open. Unfinished work from your sessions shows up here and closes itself when a later session finishes it.'
@@ -367,7 +396,7 @@ function noteView(n, before, after) {
   const link = (m) => `<a href="#" data-goto="${m.id}">#${m.id}</a> ${esc(m.created_at.slice(0, 10))} <span class="pill type" style="${tc(m.type)}">${esc(m.type)}${m.status === 'done' ? ' ✓' : ''}</span>${esc(m.title)}`;
   return `
     <button class="btn back" data-act="back">← Back</button>
-    <div class="meta"><span title="${esc(n.project)}">${esc(projName(n.project))}</span><span>#${n.id}</span><span title="${esc(n.created_at)}">${new Date(n.created_at).toLocaleString()}</span>${n.updated_at ? '<span>edited</span>' : ''}<span>${esc(n.source)}</span></div>
+    <div class="meta"><span title="${esc(n.project)}">${esc(projName(n.project))}</span><span>#${n.id}</span><span title="${esc(n.created_at)}">${new Date(n.created_at).toLocaleString()}</span>${n.updated_at ? '<span>edited</span>' : ''}<span>${esc(n.source)}</span>${n.shown_count ? `<span title="How often threadkeeper put this note in Claude's context, and how often Claude then used it">used ${n.used_count} of ${n.shown_count} times shown${!n.pinned && n.shown_count >= 4 && !n.used_count ? ' · muted (pin it to always load)' : ''}</span>` : ''}</div>
     <div class="mem ${n.type === 'session' ? 'session' : ''}" style="margin-top:10px">
       <div class="t">${typePill(n)}${esc(n.title)}</div>
       <div class="body">${fmtBody(n.body)}</div>
@@ -432,6 +461,8 @@ async function homeView() {
     <button class="btn back" data-act="back">← List</button>
     <h1>${state.project ? esc(projName(state.project)) : 'Your memory'}</h1>
     <div class="sub">${state.project ? esc(state.project) : `${overview.projects.length} projects · stored at ${esc(overview.home)}`}</div>
+    ${state.project ? `<div class="row"><a class="btn" href="/api/export?project=${encodeURIComponent(state.project)}" download title="All live notes of this project in one readable Markdown file">Export notes (.md)</a>
+      <button class="btn" id="a-share" title="Write the decisions and gotchas to .claude/team-memory.md in the repo, imported by CLAUDE.md, so teammates' Claude knows them too">Share with team</button></div>` : ''}
     <div class="tiles">
       <button class="tile" data-go="notes"><div class="v">${fmtK(p ? p.memories : c.memories)}</div><div class="l">notes</div></button>
       <button class="tile" data-go="sessions"><div class="v">${p ? p.sessions : c.sessions}</div><div class="l">sessions</div></button>
@@ -440,6 +471,7 @@ async function homeView() {
       ${h.stale ? `<button class="tile" data-go="stale"><div class="v" style="color:var(--warn)">${h.stale}</div><div class="l">notes need a check</div></button>` : ''}
       <div class="tile" title="Context threadkeeper added to Claude in the last 7 days (briefs, recalled notes, file notes)"><div class="v">~${fmtK(u.injected.tokens)}</div><div class="l">tokens added (7d)</div></div>
       <div class="tile" title="Tokens saved in the last 7 days by stopping ${u.saved.rereads} re-read(s) of files Claude already had"><div class="v" style="color:var(--ok)">~${fmtK(u.saved.tokens)}</div><div class="l">tokens saved (7d)</div></div>
+      ${h.recall.shown ? `<div class="tile" title="Of the notes threadkeeper put in Claude's context, how often Claude then used them (opened them, mentioned them or worked on their files). ${h.recall.quiet} note(s) that were never used no longer load by themselves; they are still searchable."><div class="v">${Math.round(100 * h.recall.rate)}%</div><div class="l">recalled notes used${h.recall.quiet ? ` · ${h.recall.quiet} muted` : ''}</div></div>` : ''}
       <div class="tile" title="Background summary-model calls in the last 7 days (~${fmtK(u.model.tokensIn + u.model.tokensOut)} tokens, billed to your plan, not your chat context)"><div class="v">${u.model.calls}</div><div class="l">summary calls (7d)</div></div>
     </div>
     <div class="card"><div class="sec-h" style="margin:0 0 6px">Last 30 days · ${notes30} notes from ${sess30} sessions</div>${chartSvg(h.activity)}
@@ -488,7 +520,8 @@ async function loadDetail() {
       <div class="tile"><div class="v">${s.edits}</div><div class="l">edits</div></div>
       <div class="tile"><div class="v" ${fails ? 'style="color:var(--err)"' : ''}>${fails}</div><div class="l">failures</div></div>
     </div>
-    <div class="row">${sessionStatus(s)} <button class="btn primary" id="resum">${s.summarized === 1 ? 'Summarize again' : 'Summarize now'}</button></div>
+    <div class="row">${sessionStatus(s)} ${s.private ? '' : `<button class="btn primary" id="resum">${s.summarized === 1 ? 'Summarize again' : 'Summarize now'}</button>
+      <button class="btn danger" id="a-private" title="Delete what was captured and any automatic notes from this session, and stop recording it">Make private</button>`}</div>
     <h3>Remembered (${d.memories.length})</h3>
     ${d.memories.length ? d.memories.map((m) => `<button class="item mem ${m.type === 'session' ? 'session' : ''}" data-n="${m.id}">
         <div class="t">${typePill(m)}${esc(m.title)} <span class="sub">#${m.id}</span></div><div class="body">${fmtBody(m.body)}</div>
@@ -538,7 +571,11 @@ $('mproj').onchange = (e) => { state.project = e.target.value || null; state.sel
 
 $('list').addEventListener('click', (e) => {
   const t = e.target.closest('button'); if (!t) return;
+  if (t.dataset.n && state.selecting) { const id = Number(t.dataset.n); picked.has(id) ? picked.delete(id) : picked.add(id); return loadList(); }
   if (t.dataset.n) return openNote(t.dataset.n);
+  if (t.id === 'selmode') { state.selecting = !state.selecting; picked.clear(); return loadList(); }
+  if (t.id === 'smart') { state.smart = true; t.disabled = true; t.textContent = 'Searching…'; return loadList(); }
+  if (t.dataset.bulk) return bulkAct(t.dataset.bulk);
   if (t.dataset.s) { state.phoneHome = false; state.sel = { kind: 'session', id: t.dataset.s }; state.editing = false; state.evFilter = 'all'; return refresh(); }
   if (t.dataset.t !== undefined) { state.type = t.dataset.t || null; state.limit = 50; return refresh(); }
   if (t.id === 'showdone') { state.done = !state.done; return refresh(); }
@@ -569,6 +606,14 @@ $('detail').addEventListener('click', async (e) => {
     case 'a-sess': state.tab = 'sessions'; state.sel = { kind: 'session', id: n.session_id }; persist(); return refresh();
     case 'a-del': if (confirm('Forget this note for good?')) { await post(`/api/memories/${n.id}/delete`); toast('Forgotten'); state.sel = null; refresh(); } return;
     case 'e-cancel': state.editing = false; $('detail')._html = null; return loadDetail();
+    case 'a-share': {
+      if (!confirm('Write this project\'s decisions and gotchas to .claude/team-memory.md and import it from CLAUDE.md? Review the file before you commit it.')) return;
+      const r = await post('/api/share', { project: state.project, link: true });
+      return toast(r.error ? r.error : `Wrote ${r.count} items to .claude/team-memory.md`);
+    }
+    case 'a-private':
+      if (!confirm('Delete everything captured from this session and its automatic notes, and stop recording it?')) return;
+      await post(`/api/sessions/${encodeURIComponent(current.s.id)}/private`); toast('Session is off the record'); $('detail')._html = null; return refresh();
     case 'resum': {
       const s = current.s;
       if (s.summarized === 1 && !confirm('Replace this session\'s notes with a fresh summary? Pinned notes are kept.')) return;
@@ -576,6 +621,15 @@ $('detail').addEventListener('click', async (e) => {
     }
   }
 });
+async function bulkAct(action) {
+  if (action === 'exit') { state.selecting = false; picked.clear(); return loadList(); }
+  if (action === 'all') { $('list').querySelectorAll('[data-n]').forEach((el) => picked.add(Number(el.dataset.n))); return loadList(); }
+  if (!picked.size) return toast('Pick some notes first');
+  if (action === 'forget' && !confirm(`Forget ${picked.size} note(s) for good?`)) return;
+  const r = await post('/api/notes/bulk', { ids: [...picked], action });
+  toast(`${r.changed ?? 0} note(s) ${{ pin: 'pinned', unpin: 'unpinned', outdated: 'marked outdated', forget: 'forgotten', done: 'marked done' }[action]}`);
+  picked.clear(); refresh();
+}
 $('detail').addEventListener('submit', async (e) => {
   if (e.target.id !== 'editform') return;
   e.preventDefault(); state.editing = false;
@@ -586,7 +640,15 @@ document.querySelectorAll('.tab').forEach((t) => t.onclick = () => { state.phone
 $('home').onclick = () => goHome(true);
 $('theme').onclick = cycleTheme;
 $('help').onclick = () => $('keys').showModal();
-let timer; $('q').oninput = (e) => { clearTimeout(timer); timer = setTimeout(() => { state.query = e.target.value.trim(); if (state.query) state.tab = 'notes'; state.limit = 50; refresh(); }, 250); };
+$('pausebtn').onclick = async () => {
+  if (overview.paused) { await post('/api/pause', { resume: true }); toast('Remembering again'); return refresh(); }
+  $('pausedlg').showModal();
+};
+$('pausedlg').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-pause]'); if (!b) return;
+  $('pausedlg').close(); await post('/api/pause', { hours: Number(b.dataset.pause) }); toast('Memory paused'); refresh();
+});
+let timer; $('q').oninput = (e) => { clearTimeout(timer); timer = setTimeout(() => { state.query = e.target.value.trim(); state.smart = false; if (state.query) state.tab = 'notes'; state.limit = 50; refresh(); }, 250); };
 
 function moveSel(step) {
   const items = [...$('list').querySelectorAll('[data-n],[data-s]')]; if (!items.length) return;
@@ -598,7 +660,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.matches?.('tr[data-p]')) return e.target.click();
   const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
   if (e.key === 'Escape' && document.activeElement === $('q')) { $('q').value = ''; state.query = ''; $('q').blur(); return refresh(); }
-  if (typing || e.metaKey || e.ctrlKey || e.altKey || $('keys').open) return;
+  if (typing || e.metaKey || e.ctrlKey || e.altKey || $('keys').open || $('pausedlg').open) return;
   const k = e.key;
   if (k === '/') { e.preventDefault(); $('q').focus(); }
   else if (k === 'j' || k === 'ArrowDown') { e.preventDefault(); moveSel(1); }

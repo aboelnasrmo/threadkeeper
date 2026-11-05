@@ -1,11 +1,11 @@
 {
   "name": "threadkeeper",
-  "version": "0.13.1",
+  "version": "0.14.0",
   "license": "MIT",
   "private": true,
   "type": "module",
   "description": "Personal, local-only memory for Claude Code",
   "engines": { "node": ">=22.13" },
   "bin": { "threadkeeper": "src/cli.mjs" },
-  "scripts": { "test": "bash test/run.sh" }
+  "scripts": { "test": "bash test/run.sh", "test:smoke": "node test/smoke.mjs" }
 }

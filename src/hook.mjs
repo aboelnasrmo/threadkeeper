@@ -263,6 +263,8 @@ async function main() {
 
   ensureSession(sessionId, project, input.transcript_path);
   const d = openDb();
+  const priv = await import('./privacy.mjs');
+  const off = priv.offRecord(sessionId, d);
 
   switch (event) {
     case 'SessionStart': {
@@ -272,6 +274,8 @@ async function main() {
       if (cfg.syncDir) spawnDetached('sync.mjs');
       try { if (cfg.backup !== false && (await import('./backup.mjs')).backupDue(d)) spawnDetached('backup.mjs'); } catch (e) { logError('backup check', e); }
       const notices = [];
+      const pausedV = priv.pausedUntil(d);
+      if (pausedV) notices.push(`threadkeeper is paused ${priv.pausedText(pausedV)}: nothing from this session will be remembered (memory still loads). Mention it to the user in one short line.`);
       if (cfg.importClaudeMemory) {
         try { (await import('./recover.mjs')).importClaudeMemory(project); } catch (e) { logError('import claude memory', e); }
       }
@@ -308,7 +312,18 @@ async function main() {
     }
     case 'UserPromptSubmit': {
       const prompt = redact(input.prompt ?? '');
-      if (prompt.trim()) addEvent(sessionId, 'prompt', null, clip(prompt, 1500));
+      const cmd = priv.privacyCommand(input.prompt);
+      if (cmd === 'off') {
+        priv.makePrivate(sessionId, d);
+        emit('UserPromptSubmit', 'threadkeeper: this session is now off the record. What was captured from it so far was deleted, and nothing more from it will be saved or synced. Memory still loads. Confirm this to the user in one line, then carry on with the rest of their message, if any. They can say "back on the record" to undo.');
+        break;
+      }
+      if (cmd === 'on') {
+        priv.makePublic(sessionId, d);
+        emit('UserPromptSubmit', `threadkeeper: this session is back on the record; from now on it is remembered${priv.pausedUntil(d) ? ' (but all memory is still paused: run `cli.mjs resume` or use the viewer to resume)' : ''}. Confirm in one line.`);
+        break;
+      }
+      if (prompt.trim() && !off) addEvent(sessionId, 'prompt', null, clip(prompt, 1500));
       if (cfg.promptRecall && prompt.trim()) {
         const { promptContext } = await import('./context.mjs');
         emit('UserPromptSubmit', promptContext(project, sessionId, prompt, cfg.promptRecallMax));
@@ -318,7 +333,14 @@ async function main() {
     case 'PostToolUse':
     case 'PostToolUseFailure': {
       const name = input.tool_name || 'unknown';
-      if (SKIP_TOOLS.test(name)) break;
+      // Claude opening a note it was shown counts as using it (see learn.mjs).
+      if (/^mcp__(plugin_)?threadkeeper.*__(get|timeline|mark_outdated|resolve_todo)$/.test(name)) {
+        const ti = input.tool_input || {};
+        const ids = [...(Array.isArray(ti.ids) ? ti.ids : []), ti.id].map(Number).filter((n) => Number.isInteger(n) && n > 0);
+        const st = d.prepare(`INSERT OR IGNORE INTO injected_files(session_id, path) VALUES (?, ?)`);
+        for (const id of ids.slice(0, 50)) st.run(sessionId, 'used:' + id);
+      }
+      if (off || SKIP_TOOLS.test(name)) break;
       let detail = describeTool(name, input.tool_input || {}, project);
       if (name === 'Read' && input.agent_id) detail += ' [subagent]';
       if (event === 'PostToolUseFailure') detail = `FAILED: ${detail} → ${clip(redact(input.error ?? ''), 200)}`;
@@ -330,7 +352,7 @@ async function main() {
       // Checkpoints: long or long-running sessions save a partial summary (and sync it) as they go,
       // so a crash, a closed terminal or a switch to another machine loses nothing.
       const s = d.prepare(`SELECT * FROM sessions WHERE id = ?`).get(sessionId);
-      if (s && !locked(s)) {
+      if (s && !off && !locked(s)) {
         const w = pendingWork(s);
         const since = Date.parse(s.checkpoint_at || s.started_at);
         const timeUp = Date.now() - since > (Number(cfg.checkpointMinutes) || 20) * 60000;
@@ -343,7 +365,7 @@ async function main() {
       // Synchronous on purpose: notes must be saved BEFORE the conversation is compacted,
       // so the SessionStart(compact) hook right after can hand them back.
       const s = d.prepare(`SELECT * FROM sessions WHERE id = ?`).get(sessionId);
-      if (s && !locked(s) && qualifies(s, cfg)) {
+      if (s && !off && !locked(s) && qualifies(s, cfg)) {
         const { summarizeSession } = await import('./summarize.mjs');
         try { summarizeSession(sessionId, cfg, { partial: true }); } catch (e) { logError('precompact', e); }
       }
@@ -351,10 +373,13 @@ async function main() {
     }
     case 'SessionEnd': {
       d.prepare(`UPDATE sessions SET ended_at = ? WHERE id = ?`).run(now(), sessionId);
-      d.prepare(`DELETE FROM injected_files WHERE session_id = ?`).run(sessionId);
+      // Learn which shown notes were used (reads the transcript, so in the background); it then clears the shown list.
+      if (cfg.learnFromUse === false) d.prepare(`DELETE FROM injected_files WHERE session_id = ?`).run(sessionId);
+      else spawnDetached('learn.mjs', sessionId);
       const s = d.prepare(`SELECT * FROM sessions WHERE id = ?`).get(sessionId);
       if (!s) break;
-      if (qualifies(s, cfg)) spawnSummarizer(sessionId);
+      if (off) d.prepare(`UPDATE sessions SET summarized = -1 WHERE id = ?`).run(sessionId);
+      else if (qualifies(s, cfg)) spawnSummarizer(sessionId);
       else d.prepare(`UPDATE sessions SET summarized = CASE WHEN summarized_upto > 0 THEN 1 ELSE -1 END WHERE id = ?`).run(sessionId);
       break;
     }

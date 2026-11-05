@@ -31,6 +31,10 @@ const HELP = `threadkeeper: personal memory for Claude Code
   backup                   save a backup now (one is made automatically each day; last 7 kept)
   restore [YYYY-MM-DD]     list backups, or restore one (quit Claude Code and Desktop first)
   week [days]              what got done per project over the last 7 days
+  share [folder] [--link]  write the project's decisions and gotchas to .claude/team-memory.md for teammates
+                           (--link also adds it to CLAUDE.md so every teammate's Claude loads it)
+  pause [hours]            stop remembering (all sessions) for N hours, or until resume; memory still loads
+  resume                   start remembering again
   doctor                   check that everything is wired up
 `;
 
@@ -83,6 +87,28 @@ switch (cmd) {
     for (const f of ['memory.db-wal', 'memory.db-shm']) fs.rmSync(path.join(HOME, f), { force: true });
     fs.copyFileSync(b.path, live);
     console.log(`Restored the backup from ${b.day}.${fs.existsSync(keep) ? ` The database as it was is kept at ${keep}.` : ''}`);
+    break;
+  }
+  case 'share': {
+    const flags = [arg, ...rest];
+    const folder = arg && !arg.startsWith('--') ? arg : process.cwd();
+    const { share } = await import('./share.mjs');
+    const r = share(projectFor(folder), { link: flags.includes('--link') });
+    console.log(`Wrote ${r.count} item(s) to ${r.file}.`);
+    console.log(r.linked ? 'CLAUDE.md imports it, so every teammate\'s Claude loads it. Review it, then commit both files.'
+      : 'Review it and commit it. To have every teammate\'s Claude load it, run again with --link (adds one line to CLAUDE.md).');
+    console.log('It is kept up to date by itself from now on (daily housekeeping).');
+    break;
+  }
+  case 'pause': {
+    const { pause, pausedText } = await import('./privacy.mjs');
+    console.log(`Paused ${pausedText(pause(Number(arg) || 0))}. Sessions still get their memory, but nothing new is saved. Undo with: resume`);
+    break;
+  }
+  case 'resume': {
+    const { resume } = await import('./privacy.mjs');
+    resume();
+    console.log('Remembering again.');
     break;
   }
   case 'week': {
@@ -152,6 +178,8 @@ switch (cmd) {
     console.log(`  added to Claude's context: ~${u.injected.tokens.toLocaleString()} tokens over ${u.injected.times} injections`);
     console.log(`  saved by the re-read guard: ~${u.saved.tokens.toLocaleString()} tokens over ${u.saved.rereads} unchanged re-reads`);
     console.log(`  summary model (${loadConfig().model}): ${u.model.calls} calls, ~${u.model.tokensIn.toLocaleString()} tokens in, ~${u.model.tokensOut.toLocaleString()} tokens out`);
+    const r = (await import('./learn.mjs')).recallStats();
+    if (r.shown) console.log(`  recalled notes Claude used: ${Math.round(100 * r.rate)}% (${r.used} of ${r.shown} times shown); ${r.quiet} never-used note(s) no longer load by themselves (still searchable)`);
     break;
   }
   case 'export': {
@@ -220,7 +248,7 @@ switch (cmd) {
     try { openDb(); } catch { dbOk = false; }
     ok(dbOk, `database at ${path.join(HOME, 'memory.db')}`);
     const cc = claudeCommand();
-    const c = spawnSync(cc.cmd, ['--version'], { encoding: 'utf8', shell: cc.shell, windowsHide: true });
+    const c = spawnSync(cc.cmd, [...(cc.pre || []), '--version'], { encoding: 'utf8', shell: cc.shell, windowsHide: true });
     ok(c.status === 0, `claude CLI ${c.stdout?.trim() || 'not found'}`, 'summaries need the `claude` command on PATH');
     const pluginsFile = path.join(os.homedir(), '.claude', 'plugins', 'installed_plugins.json');
     let installed = false;

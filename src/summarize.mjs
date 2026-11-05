@@ -141,9 +141,9 @@ export function parseResponse(text) {
 }
 
 export function callClaude(prompt, cfg, { timeout = 180_000, project = 'general' } = {}) {
-  const { cmd, shell } = claudeCommand();
+  const { cmd, shell, pre = [] } = claudeCommand();
   const model = /^[\w.:-]{1,60}$/.test(String(cfg.model)) ? String(cfg.model) : 'haiku';
-  const r = spawnSync(cmd, ['-p', '--model', model, '--output-format', 'text'], {
+  const r = spawnSync(cmd, [...pre, '-p', '--model', model, '--output-format', 'text'], {
     windowsHide: true,
     shell,
     input: prompt,
@@ -173,6 +173,10 @@ export function summarizeSession(sessionId, cfg = loadConfig(), { partial = fals
   const d = openDb();
   let s = d.prepare(`SELECT * FROM sessions WHERE id = ?`).get(sessionId);
   if (!s) return 'missing';
+  if (d.prepare('SELECT 1 FROM sync_state WHERE key = ?').get('private:' + sessionId)) {
+    d.prepare('UPDATE sessions SET summarized = -1 WHERE id = ?').run(sessionId);
+    return 'private';
+  }
   if (!qualifies(s, cfg)) {
     if (!partial) d.prepare(`UPDATE sessions SET summarized = CASE WHEN summarized_upto > 0 THEN 1 ELSE -1 END WHERE id = ?`).run(sessionId);
     return 'too-small';

@@ -249,6 +249,7 @@ export async function maintain(project, cfg = loadConfig()) {
     try { out.tagged = await tagNotes(project, cfg, { maxCalls: backlog > 300 ? 10 : 4 }); } catch (e) { logError('maintain tags', e); }
   }
   try { await (await import('./brief.mjs')).maybeRefreshBrief(project, cfg); } catch (e) { logError('brief', e); }
+  try { out.shared = (await import('./share.mjs')).refreshShared(project); } catch (e) { logError('team memory', e); }
   if ((out.retired || out.merged || out.tagged) && cfg.syncDir) {
     try { (await import('./sync.mjs')).runSync(cfg, { force: true }); } catch (e) { logError('sync', e); }
   }

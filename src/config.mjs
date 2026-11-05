@@ -65,7 +65,8 @@ const DEFAULTS = {
  * (arguments are fixed flags; the prompt goes on stdin).
  */
 export function claudeCommand() {
-  if (process.env.THREADKEEPER_CLAUDE_BIN) return { cmd: process.env.THREADKEEPER_CLAUDE_BIN, shell: false };
+  const bin = process.env.THREADKEEPER_CLAUDE_BIN; // tests: a fake claude (a Node script runs on every OS)
+  if (bin) return /\.[cm]?js$/.test(bin) ? { cmd: process.execPath, pre: [bin], shell: false } : { cmd: bin, shell: false };
   if (process.platform !== 'win32') return { cmd: 'claude', shell: false };
   for (const dir of String(process.env.PATH || '').split(path.delimiter)) {
     if (!dir) continue;
