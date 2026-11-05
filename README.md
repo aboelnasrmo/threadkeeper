@@ -1,6 +1,6 @@
 # threadkeeper
 
-**Version 0.15.0** · [Changelog](CHANGELOG.md) · [![tests](https://github.com/aboelnasrmo/threadkeeper/actions/workflows/test.yml/badge.svg)](https://github.com/aboelnasrmo/threadkeeper/actions/workflows/test.yml) on macOS, Windows and Linux
+**Version 0.16.0** · [Changelog](CHANGELOG.md) · [![tests](https://github.com/aboelnasrmo/threadkeeper/actions/workflows/test.yml/badge.svg)](https://github.com/aboelnasrmo/threadkeeper/actions/workflows/test.yml) on macOS, Windows and Linux
 
 Personal, local-only memory for Claude Code. Built so Claude never loses its place: not after a long session, not after the context is compacted, not next week. No account, no hosted service, no extra dependencies. Inspired by [claude-mem](https://github.com/thedotmack/claude-mem); written from scratch to be small, local-only and token-lean.
 
@@ -140,11 +140,11 @@ Each machine keeps its own database and appends only to its own file in that fol
 
 ## Token use
 
-threadkeeper loads a small index, not everything: the project brief (one page), open todos, pinned notes, the newest session in full, and only titles with `#id`s for older ones. When a project has a brief, fewer recent sessions are loaded because the brief already condenses them. Anything else stays one `search` / `get` away, so nothing is lost.
+threadkeeper's fixed cost per session is small: its tool definitions take about 700 tokens and the skill description about 50. It loads a small index, not everything: the project brief (one page), open todos, pinned notes, the newest session in full, and only titles with `#id`s for older ones. When a project has a brief, fewer recent sessions are loaded because the brief already condenses them. Anything else stays one `search` / `get` away, so nothing is lost.
 
 It also never says the same thing twice: a note loaded at session start is not repeated when Claude opens a related file or you mention its topic, and short replies ("ok", "go on") trigger no recall. A `--resume`d session gets only what changed since it was last active (its old conversation is already back), and after compaction only the brief, rules, todos and "this session so far" come back. The summary model gets a compressed log (file reads and searches counted, not listed; repeated commands merged), about a third smaller. `node src/cli.mjs usage` (and the viewer header) shows what threadkeeper actually cost over the last 7 days.
 
-**Re-read guard.** The biggest token cost in long sessions is Claude reading the same file again. When Claude asks to re-read a file (3 KB or more) that it already read in full this session, that hasn't changed since and hasn't been compacted away, threadkeeper stops that one read and tells Claude the content is still above. If Claude really needs it (a subagent, or after a summary), the very next attempt goes through. Partial reads and subagents are never stopped. Turn it off with `"rereadGuard": false`. Savings show in `usage`. Measured on a 600-note project: about 750 tokens at session start (the brief's short Essentials section loads; the full page is one `brief` call away), about 110 per matching prompt and 140 per newly opened file with history. Raise `contextMaxChars` and friends in settings if you'd rather spend more.
+**Re-read guard.** The biggest token cost in long sessions is Claude reading the same file again. When Claude asks to re-read a file (3 KB or more), or a large slice of one, that it already read in full this session, that hasn't changed since and hasn't been compacted away, threadkeeper stops that one read and tells Claude the content is still above. If Claude really needs it (a subagent, or after a summary), the very next attempt goes through. Partial reads and subagents are never stopped. Turn it off with `"rereadGuard": false`. Savings show in `usage`. Measured on a 600-note project: about 750 tokens at session start (the brief's short Essentials section loads; the full page is one `brief` call away), about 110 per matching prompt and 140 per newly opened file with history. Raise `contextMaxChars` and friends in settings if you'd rather spend more.
 
 ## Troubleshooting by OS
 

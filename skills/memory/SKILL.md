@@ -1,6 +1,6 @@
 ---
 name: memory
-description: Use threadkeeper, your memory of past Claude Code sessions in this project, to avoid re-investigating solved problems, follow earlier decisions, and keep notes current. Use before digging into a bug, an error message, a config or deploy question, or an area you haven't touched this session; and when the user says "remember", "last time", "we already", or "why did we".
+description: Use threadkeeper (memory of past sessions in this project) before digging into a bug, error, config or area not touched this session, and when the user says "remember", "last time", "we already" or "why did we".
 ---
 
 # Using threadkeeper

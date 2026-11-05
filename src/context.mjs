@@ -3,7 +3,6 @@ import path from 'node:path';
 import { openDb, openTodos, relPath, filesOf, RANK, openConflicts } from './db.mjs';
 import { ignored } from './learn.mjs';
 
-const ICON = { decision: '⚖', bugfix: '●', feature: '◆', refactor: '↻', discovery: '○', gotcha: '⚠', todo: '☐', note: '·' };
 const day = (iso) => iso.slice(0, 10);
 
 /** What this same session already did: used after compaction or resume so Claude doesn't lose its place. */
@@ -106,7 +105,8 @@ export function buildContext(project, cfg, { sessionId, source, notices = [] } =
   // otherwise never load at startup, so the newest of them get their own section.
   const shownSessions = new Set(sessions.map((x) => x.session_id));
   const loose = d.prepare(
-    `SELECT * FROM memories WHERE project = ? AND type NOT IN ('todo','brief') AND superseded_at IS NULL AND pinned = 0 AND COALESCE(source, '') != 'manual'
+    `SELECT * FROM memories m WHERE project = ? AND type NOT IN ('todo','brief') AND superseded_at IS NULL AND pinned = 0 AND COALESCE(source, '') != 'manual'
+       AND (session_id IS NULL OR NOT EXISTS (SELECT 1 FROM sessions s WHERE s.id = m.session_id))
      ORDER BY created_at DESC, id DESC LIMIT 60`
   ).all(project).filter((m) => (!m.session_id || !shownSessions.has(m.session_id)) && !(learn && ignored(m))).slice(0, compact ? 0 : hasBrief(d, project, cfg) ? Math.min(3, cfg.contextLooseNotes ?? 6) : cfg.contextLooseNotes ?? 6);
   // The user's own preferences (rules saved "everywhere", or from Claude Code memory in the home folder) load in every project.
@@ -120,8 +120,7 @@ export function buildContext(project, cfg, { sessionId, source, notices = [] } =
   if (!sessions.length && !todos.length && !staleTodos && !prefs.length && !manual.length && !loose.length && !current && !brief && !notices.length && !conflicts.length) return '';
 
   const out = [
-    `# threadkeeper: your notes from earlier sessions in ${path.basename(project)}`,
-    'Written by you in past sessions. Use them to pick up where things left off; verify details against the code before relying on them.',
+    `# threadkeeper: your notes from earlier sessions in ${path.basename(project)} (verify against the code before relying on them)`,
   ];
   let used = 0;
   const shown = [];
@@ -145,7 +144,7 @@ export function buildContext(project, cfg, { sessionId, source, notices = [] } =
 
   if (todos.length) {
     push('\n## Open todos');
-    for (const t of todos) { if (!push(`- #${t.id} ${t.title}: ${short(t.body, 200)}`)) break; shown.push(t.id); }
+    for (const t of todos) { if (!push(`- #${t.id} ${t.title}: ${short(t.body, 120)}`)) break; shown.push(t.id); }
   }
   if (staleTodos) push(`${todos.length ? '' : '\n'}(${staleTodos} older open todo(s) not shown: \`todos\` tool lists them; close finished ones with \`resolve_todo\`.)`);
   if (manual.length) {
@@ -162,9 +161,9 @@ export function buildContext(project, cfg, { sessionId, source, notices = [] } =
       for (const m of byId.all(s.session_id)) {
         if (m.type !== 'session' && learn && ignored(m)) continue;
         if (s.idx === 0) ids.push(m.id);
-        if (m.type === 'session') lines.push(short(m.body, 600));
-        else if (s.idx === 0) lines.push(`- ${ICON[m.type] || '·'} [${m.type}]${stale(m)} ${m.title}: ${short(m.body, 300)} (#${m.id})`);
-        else lines.push(`- ${ICON[m.type] || '·'} ${m.title} (#${m.id})`);
+        if (m.type === 'session') lines.push(short(m.body, s.idx === 0 ? 600 : 300));
+        else if (s.idx === 0) lines.push(`- [${m.type}]${stale(m)} ${m.title}: ${short(m.body, 220)} #${m.id}`);
+        else lines.push(`- ${m.title} #${m.id}`);
       }
       if (!push(lines.join('\n'))) break;
       shown.push(...ids);
@@ -173,12 +172,12 @@ export function buildContext(project, cfg, { sessionId, source, notices = [] } =
   if (loose.length && used < budget) {
     push('\n## Other recent notes (from other machines or imported history, newest first)');
     for (const m of loose) {
-      const body = short(m.body, 300);
-      if (!push(`- ${day(m.created_at)} ${ICON[m.type] || '·'} [${m.type}]${stale(m)} ${m.title}: ${body} (#${m.id})`)) break;
+      const body = short(m.body, 220);
+      if (!push(`- ${day(m.created_at)} [${m.type}]${stale(m)} ${m.title}: ${body} #${m.id}`)) break;
       shown.push(m.id);
     }
   }
-  out.push('\nOlder history: use the threadkeeper `search` tool (then `get` for full notes, `timeline` for what happened around one).');
+  out.push('\nMore: threadkeeper `search`, then `get` #ids.');
   markShown(d, sessionId, shown);
   return out.join('\n');
 }
@@ -267,7 +266,7 @@ export function promptContext(project, sessionId, prompt, max = 3) {
   }
   if (!picked.length) return '';
   return [
-    'threadkeeper: past notes that look relevant (verify first; `get` with the #id for the full note):',
+    'threadkeeper notes that may help (verify; `get` #id for more):',
     ...picked.map((m) => `- #${m.id} ${day(m.created_at)} [${m.type}]${stale(m)} ${m.title}: ${short(m.body.replace(/\s+/g, ' '), 140)}`),
   ].join('\n');
 }

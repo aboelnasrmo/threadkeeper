@@ -151,6 +151,32 @@ const TOOLS = [
 
 const DESKTOP = process.env.THREADKEEPER_CLIENT === 'desktop';
 
+// Tool definitions are sent to Claude in every Claude Code session, so there they are kept short (about a third of the
+// full text): Code needs no project argument, and the Desktop-only tools are left out. Desktop gets the full versions.
+const CODE_DESC = {
+  search: 'Search memory of past sessions (decisions, fixes, gotchas, todos) before re-investigating. Returns lines with #ids; then get or timeline.',
+  get: 'Full notes by id (batch ids).',
+  timeline: 'Notes just before and after one id.',
+  remember: 'Save a note now (user said "remember", or a hard-won fact). pin: load every session (rules). everywhere: personal preference for all projects. type todo: unfinished work.',
+  brief: 'The full project brief (start of each session has only its essentials). refresh rebuilds it (slow).',
+  mark_outdated: 'Retire notes you proved wrong; remember the correction first and pass its id as replaced_by.',
+  settle_conflict: 'Settle "notes that disagree" from session start, after asking the user. keep: old, new or both.',
+  my_prompts: 'Search what the user wrote in past sessions ("what did I say about X"), last ~60 days, newest first.',
+  resolve_todo: 'Mark todos done by id.',
+  todos: 'All open todos, including old ones not shown at session start.',
+};
+function codeTools() {
+  const strip = (props) => Object.fromEntries(Object.entries(props || {}).filter(([k]) => k !== 'project').map(([k, v]) => {
+    const { description, default: _d, ...rest } = v;
+    return [k, rest];
+  }));
+  return TOOLS.filter((t) => CODE_DESC[t.name]).map((t) => ({
+    name: t.name,
+    description: CODE_DESC[t.name],
+    inputSchema: { ...t.inputSchema, properties: strip(t.inputSchema.properties) },
+  }));
+}
+
 /** Turn a folder name or path into the stored project key (most recently active match wins). */
 export function resolveProject(name) {
   if (!name) return null;
@@ -411,7 +437,7 @@ export function serve() {
             : 'Personal memory of past sessions. Search it before re-investigating old problems; use remember for facts worth keeping.',
         });
       } else if (method === 'tools/list') {
-        reply({ tools: TOOLS });
+        reply({ tools: DESKTOP ? TOOLS : codeTools() });
       } else if (method === 'tools/call') {
         await loadHelpers();
         const text = await callTool(params?.name, params?.arguments || {}, project);

@@ -2,6 +2,13 @@
 
 Every release, newest first. The version is also shown at the top of the README and by `cli.mjs doctor`.
 
+## 0.16.0 (2026-11-05)
+Token diet: what threadkeeper itself adds to every Claude Code session is about 40% smaller.
+- Tool definitions (sent every session): about 1,540 → 710 tokens. Claude Code gets short descriptions without the Desktop-only tools and arguments; Claude Desktop keeps the full versions.
+- Session start: notes from older local sessions no longer spill into "Other recent notes" (that section is only for synced and imported notes); shorter header, footer and note lines. A realistic project went from about 1,030 → 780 tokens.
+- The memory skill's description (always loaded) is 40% shorter; recall headers and the re-read message are shorter.
+- Re-read guard also stops re-reading a large slice of a file already read in full and unchanged.
+
 ## 0.15.0 (2026-11-05)
 - **Notes that disagree**: when a session goes against an earlier note and it isn't clear which is right, both are flagged instead of one being dropped silently. Rules you pinned are never retired silently anymore (by summaries or the brief). Claude sees open disagreements at session start and settles them with you (`settle_conflict`); the viewer's overview has Keep older / Keep newer / Both are fine.
 - **Search your own past prompts**: new `my_prompts` tool ("what did I say about X last week"), and the viewer's Sessions tab search finds the sessions where you wrote something.

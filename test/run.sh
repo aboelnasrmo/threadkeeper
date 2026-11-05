@@ -380,9 +380,10 @@ head -c 6000 /dev/urandom | base64 > "$PROJ/src/big.ts"; touch -d '5 minutes ago
 RD='{"tool_name":"Read","tool_input":{"file_path":"'"$PROJ"'/src/big.ts"}}'
 [[ -z "$(j "$RD" | $H PreToolUse | grep -o deny)" ]] || fail "first read must go through"
 j "$RD" | $H PostToolUse
-[[ "$(j "$RD" | $H PreToolUse)" == *'"permissionDecision":"deny"'*"unchanged since you read it"* ]] || fail "unchanged re-read should be stopped"
+[[ "$(j "$RD" | $H PreToolUse)" == *'"permissionDecision":"deny"'*"unchanged since your full read"* ]] || fail "unchanged re-read should be stopped"
 [[ "$(j "$RD" | $H PreToolUse)" != *deny* ]] || fail "second attempt must go through"
-[[ "$(j '{"tool_name":"Read","tool_input":{"file_path":"'"$PROJ"'/src/big.ts","offset":10,"limit":5}}' | $H PreToolUse)" != *deny* ]] || fail "partial reads are never stopped"
+[[ "$(j '{"tool_name":"Read","tool_input":{"file_path":"'"$PROJ"'/src/big.ts","offset":10,"limit":5}}' | $H PreToolUse)" != *deny* ]] || fail "tiny slices are never stopped"
+[[ "$(j '{"tool_name":"Read","tool_input":{"file_path":"'"$PROJ"'/src/big.ts","offset":10,"limit":200}}' | $H PreToolUse)" == *deny* ]] || fail "a big slice of a fully read, unchanged file is stopped"
 echo more >> "$PROJ/src/big.ts"
 [[ "$(j "$RD" | $H PreToolUse)" != *deny* ]] || fail "changed file must be read"
 [[ "$(j '{"tool_name":"Read","agent_id":"a1","tool_input":{"file_path":"'"$PROJ"'/src/big.ts"}}' | $H PreToolUse)" != *deny* ]] || fail "subagents are never stopped"
@@ -561,6 +562,11 @@ WH="$(mktemp -d)"; echo '{"autoViewer":false}' > "$WH/settings.json"
 [[ "$(THREADKEEPER_HOME="$WH" node -e 'console.log(JSON.stringify({session_id:"w1",cwd:process.argv[1]}))' "$CF/src" | THREADKEEPER_HOME="$WH" $H SessionStart)" == *"threadkeeper is on."* ]] || fail "welcome on first session"
 [[ "$(THREADKEEPER_HOME="$WH" node -e 'console.log(JSON.stringify({session_id:"w2",cwd:process.argv[1]}))' "$CF/src" | THREADKEEPER_HOME="$WH" $H SessionStart)" == *"threadkeeper is on."* ]] && fail "welcome only once"
 [[ "$(node --no-warnings "$ROOT/src/cli.mjs" week)" == *"Memory cost and savings: ~"*"tokens saved by"* ]] || fail "weekly savings line"
+# Token diet: tool definitions are sent every session, so Claude Code gets the short versions (Desktop the full ones).
+TL='{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+CODE_TL="$(mcp "$TL" | tail -1)"; DESK_TL="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' "$TL" | THREADKEEPER_CLIENT=desktop node --no-warnings "$ROOT/src/mcp.mjs" | tail -1)"
+[[ ${#CODE_TL} -lt 3300 && "$CODE_TL" != *save_chat* && "$CODE_TL" != *'"project"'* && "$CODE_TL" == *my_prompts* ]] || fail "short tool list in Claude Code (${#CODE_TL} chars)"
+[[ "$DESK_TL" == *save_chat* && "$DESK_TL" == *'"project"'* ]] || fail "full tool list in Desktop"
 # Every release names its version in the README and the changelog.
 V="$(node -p "require('$ROOT/package.json').version")"
 [[ "$(node -p "require('$ROOT/.claude-plugin/plugin.json').version")" == "$V" ]] || fail "plugin.json version"
