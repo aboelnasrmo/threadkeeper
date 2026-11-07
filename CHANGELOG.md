@@ -2,6 +2,17 @@
 
 Every release, newest first. The version is also shown at the top of the README and by `cli.mjs doctor`.
 
+## 0.20.0 (2026-11-07)
+Claude keeps its place in long work. Built from what real data on the Mac showed: long work runs in sessions that last days and grow to ~1M tokens, compact rarely, and after a compaction got back a pile of old notes and requests cut off after the wrapper text.
+- **Your real words are saved**: Claude project threads (and Remote Control) wrap every message in `<wake>`/`<relay>` text; threadkeeper now keeps only what was written (and a relayed note as "(relayed) …"), and slash commands as "/name args". Prompts already saved are cleaned once on update. Recall, summaries, prompt search and the post-compaction list all use the real words, and "off the record" works in threads.
+- **"Where you are now" after a compaction**: instead of every note from the session (one real session: 34 notes, ~3,700 tokens, some saying different things about what was live), Claude gets the latest request, the task list (TodoWrite, Task tools, or a thread's progress checklist), the latest checkpoint, files changed and recent failures; earlier notes from the session are listed by title only. About 500–1,000 tokens.
+- **Long-conversation reminder**: past `anchorTokens` (200k) of context, every `anchorEvery`-th (6th) message gets a ~100–250 token reminder of the open steps, last checkpoint, recent requests and files. Skipped right after a compaction. Off with `"taskAnchor": false`.
+- **Resumed or copied conversations**: when a conversation continues under a new session id (its log starts well before threadkeeper first saw it), a compaction hands back where the session it continues left off.
+- **Same-session recall in long sessions**: notes written by this same session before its last compaction, or more than 3 hours ago, can be recalled by your messages again (they were never recalled before).
+- **Checkpoints end with "Next: …"** when work is unfinished, so the reminder and post-compaction block say what comes next.
+- **Nested folders**: when Claude moves into a folder inside the session's project (such as a nested git repo `./repo`), memory keeps using the session's project instead of searching an empty one.
+- **Sturdier sync**: a machine's file that the cloud drive can't read yet (EAGAIN while Google Drive downloads it) is skipped for that round instead of stopping the whole sync, including sending this machine's notes.
+
 ## 0.19.0 (2026-11-05)
 - **Every project in the viewer**: the sidebar now also lists folders Claude Code has worked in on this machine but that have nothing in memory yet ("Not in memory yet"), found from Claude Code's own session history.
 - **Build memory from past sessions**: a project's overview shows how many earlier Claude Code sessions there threadkeeper never saw, with "Build from the latest 5 / 20". They are rebuilt and summarized in the background (one small summary call each, newest first).

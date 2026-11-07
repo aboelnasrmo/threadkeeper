@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
+import { promptText } from './prompt.mjs';
 import { HOME } from './config.mjs';
 
 let db;
@@ -162,6 +163,8 @@ const MIGRATIONS = [
   ALTER TABLE sessions ADD COLUMN tok_peak INTEGER;
   ALTER TABLE sessions ADD COLUMN tok_compactions INTEGER;
   `,
+  // v11 -> v12: prompts saved with thread wrapper text (<wake>/<relay> envelopes) keep only the user's words (JS below)
+  `SELECT 1;`,
 ];
 
 /** Settle a conflict: keep the old note, the new one, or both (they turned out not to clash). */
@@ -207,6 +210,13 @@ export const newUid = () => randomUUID();
 
 // Data fixes that need JavaScript, run right after the SQL migration with the same index.
 const MIGRATION_JS = {
+  10: (db) => {
+    const st = db.prepare('UPDATE events SET detail = ? WHERE id = ?');
+    for (const r of db.prepare(`SELECT id, detail FROM events WHERE kind = 'prompt' AND detail LIKE '%<%'`).all()) {
+      const t = promptText(r.detail);
+      if (t && t !== r.detail) st.run(t, r.id);
+    }
+  },
   2: (db) => {
     const st = db.prepare('UPDATE memories SET uid = ? WHERE id = ?');
     for (const r of db.prepare('SELECT id FROM memories WHERE uid IS NULL').all()) st.run(newUid(), r.id);

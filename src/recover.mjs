@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig, logError } from './config.mjs';
 import { openDb, now, insertMemory, updateMemory, projectFor, EDIT_TOOLS } from './db.mjs';
 import { redact, clip, isSensitivePath } from './redact.mjs';
+import { promptText } from './prompt.mjs';
 
 const MAX_TRANSCRIPT = 16 * 1024 * 1024;
 const MAX_EVENTS = 600;
@@ -177,7 +178,7 @@ export function transcriptEvents(file, project) {
       const text = typeof content === 'string' ? content
         : Array.isArray(content) ? content.filter((c) => c?.type === 'text').map((c) => c.text).join('\n') : '';
       if (!text.trim() || /^\s*<(command-|local-command|system-reminder)/.test(text) || text.startsWith('Caveat:')) continue;
-      events.push({ ts, kind: 'prompt', tool: null, detail: clip(redact(text), 1500) });
+      events.push({ ts, kind: 'prompt', tool: null, detail: clip(redact(promptText(text)), 1500) });
     } else if (o.type === 'assistant' && Array.isArray(content)) {
       for (const c of content) {
         if (c?.type !== 'tool_use' || /^mcp__threadkeeper__/.test(c.name || '')) continue;

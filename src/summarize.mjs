@@ -90,7 +90,7 @@ Do not describe the act of reading files; record what was learned from them.
 
 Reply with ONLY a JSON object, no prose:
 {
-  "summary": "2-4 sentences: what was worked on, what got done, what is still unfinished",
+  "summary": "2-4 sentences: what was worked on, what got done, what is still unfinished. If work is unfinished, end with \"Next: <the next concrete step>\"",
   "memories": [
     { "type": "${KINDS.join('|')}", "title": "short and specific", "body": "1-3 sentences with the concrete details", "files": ["paths this note is about"], "pin": false, "everywhere": false,
       "tags": "6-10 other words someone might search for to find this note: synonyms, the technologies, components and concepts involved, not already in the title" }

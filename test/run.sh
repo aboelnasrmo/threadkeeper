@@ -88,7 +88,7 @@ j '{"prompt":"build the a.ts module"}' | $H UserPromptSubmit >/dev/null
 j '{"trigger":"auto"}' | $H PreCompact
 [[ "$(q "select summarized, summarized_upto > 0 as up from sessions where id='sess-4'")" == '[{"summarized":0,"up":1}]' ]] || fail "PreCompact must save synchronously"
 CC="$(j '{"source":"compact"}' | $H SessionStart)"
-[[ "$CC" == *"This session so far"* && "$CC" == *"build the a.ts module"* && "$CC" == *"Files changed in this session: a.ts"* ]] || fail "post-compact context: $CC"
+[[ "$CC" == *"Where you are now"* && "$CC" == *"Latest request from the user: build the a.ts module"* && "$CC" == *"Files changed recently: a.ts"* && "$CC" == *"Latest checkpoint"* ]] || fail "post-compact context: $CC"
 [[ "$(j '{"source":"startup"}' | S=sess-4b $H SessionStart)" == *"This session so far"* ]] && fail "fresh session should not get 'this session'"
 j '{"reason":"exit"}' | $H SessionEnd
 [[ "$(q "select summarized from sessions where id='sess-4'")" == '[{"summarized":1}]' ]] || fail "nothing new after partial -> done: $(q "select summarized, summarized_upto, tool_calls, prompts, edits from sessions where id='sess-4'")"
@@ -362,7 +362,7 @@ mcp "$(call remember '{"title":"Fresh from the other machine","body":"new fact",
 RC="$(S=sess-21 j '{"source":"resume"}' | $H SessionStart)"
 [[ "$RC" == *"Fresh from the other machine"* && "$RC" != *"Recent sessions"* && "$RC" != *"Project brief"* ]] || fail "resume context: $RC"
 CC="$(S=sess-21 j '{"source":"compact"}' | $H SessionStart)"
-[[ "$CC" == *"This session so far"* && "$CC" != *"Recent sessions"* ]] || fail "compact context: $CC"
+[[ "$CC" == *"Where you are now"* && "$CC" != *"Recent sessions"* ]] || fail "compact context: $CC"
 # Housekeeping: notes about git-deleted files retire; near-duplicates merge.
 G="$(mktemp -d)"; git -C "$G" init -q; git -C "$G" config user.email t@t; git -C "$G" config user.name t
 echo a > "$G/gone.ts"; echo b > "$G/kept.ts"; git -C "$G" add -A; git -C "$G" commit -qm one; git -C "$G" rm -q gone.ts; git -C "$G" commit -qm two
@@ -632,6 +632,41 @@ for _ in $(seq 1 100); do [[ "$(q "select count(*) n from sessions where id='old
 [[ "$(q "select recovered, edits from sessions where id='old-sess-1'")" == '[{"recovered":1,"edits":12}]' ]] || fail "past session rebuilt: $(q "select * from sessions where id='old-sess-1'")"
 [[ "$(curl -s localhost:37791/api/overview)" != *'"project":"'"$TP2"'","sessions":1,"last"'* ]] || true
 [[ "$(curl -s -XPOST -H 'x-threadkeeper: 1' -H 'content-type: application/json' -d '{"project":"/nope"}' localhost:37791/api/build)" == *error* ]] || fail "build needs past sessions"
+echo "26. keeping the current task in view: real words from thread messages, where-you-are after compaction, long-session reminder"
+S=sess-95; TR="$TP/transcript95.jsonl"
+mkt2() { node -e 'const [f,...c]=process.argv.slice(1);require("fs").writeFileSync(f,c.map((x,i)=>JSON.stringify({type:"assistant",isSidechain:false,message:{id:"m"+i,usage:{input_tokens:2,cache_creation_input_tokens:1000,cache_read_input_tokens:Number(x)-1002,output_tokens:50}}})).join("\n")+"\n")' "$TR" "$@"; }
+mkt2 250000
+j95() { node -e 'console.log(JSON.stringify(Object.assign({session_id:process.argv[1],cwd:process.argv[2],transcript_path:process.argv[4]},JSON.parse(process.argv[3]))))' "$S" "${CWD95:-$TP}" "$1" "$TR"; }
+j95 '{}' | $H SessionStart >/dev/null
+WAKE='<wake reason=\"mention\" current-time=\"t\"><project id=\"chan_x\" type=\"project\"><thread ts=\"c1\"><message trigger=\"true\" from=\"human\" trust=\"principal\" author=\"MO\" id=\"c2\">publish release 1cb3905a to live now</message></thread></project><system-note>Thread state: last wrote 0m ago</system-note></wake>'
+j95 '{"prompt":"'"$WAKE"'"}' | $H UserPromptSubmit >/dev/null
+[[ "$(q "select detail from events where session_id='sess-95' and kind='prompt'")" == '[{"detail":"publish release 1cb3905a to live now"}]' ]] || fail "thread wrapper stripped: $(q "select detail from events where session_id='sess-95'")"
+[[ "$(node --no-warnings -e 'import("'"$ROOT"'/src/prompt.mjs").then(m=>console.log(m.promptText("<relay from=\"coordinator\"><note>ship &#39;it&#39;</note></relay>")))')" == "(relayed) ship 'it'" ]] || fail "relay note kept"
+j95 '{"tool_name":"mcp__hearthbot__update_progress_checklist","tool_input":{"text":"Release work\n\n✓ Fetch and check ancestry\n✱ Push 1cb3905a to live\n○ Poll readyz and the version marker"}}' | $H PostToolUse
+j95 '{"tool_name":"Edit","tool_input":{"file_path":"'"$TP"'/src/deploy.ts","new_string":"x"}}' | $H PostToolUse
+[[ "$(j95 '{"prompt":"what is the status of the push"}' | $H UserPromptSubmit)" != *"conversation is long"* ]] || fail "no reminder before 3 prompts"
+A="$(j95 '{"prompt":"go ahead and keep polling the site"}' | $H UserPromptSubmit)"
+[[ "$A" == *"conversation is long (~250k tokens)"*"Open steps: ✱ Push 1cb3905a to live | ○ Poll readyz"*"Files changed lately: src/deploy.ts"* && "$A" != *"Fetch and check"* ]] || fail "long-session reminder: $A"
+[[ "$(j95 '{"prompt":"any news on readyz yet"}' | $H UserPromptSubmit)" != *"conversation is long"* ]] || fail "reminder not on every message"
+mkt2 120000
+for i in 1 2 3 4 5 6; do [[ "$(j95 '{"prompt":"small context prompt number '$i'"}' | $H UserPromptSubmit)" != *"conversation is long"* ]] || fail "no reminder under the threshold"; done
+mkt2 260000
+[[ "$(j95 '{"prompt":"still waiting for readyz to change"}' | $H UserPromptSubmit)" == *"conversation is long (~260k"* ]] || fail "reminder again after anchorEvery prompts"
+# Claude moves into a nested git repo: recall and the reminder keep using the session's project.
+mkdir -p "$TP/repo/.git"
+for i in 1 2 3 4 5 6; do CWD95="$TP/repo" j95 '{"prompt":"nested repo prompt about readyz '$i'"}' | $H UserPromptSubmit >/dev/null; done
+[[ "$(q "select count(*) n from usage where project='$TP/repo'")" == '[{"n":0}]' ]] || fail "nested repo stays in the session's project: $(q "select project, kind from usage")"
+# After a compaction: a short where-you-are block, older notes by title only.
+mcp "$(call remember '{"title":"Live push needs owner go-ahead","body":"BODYSHOULDNOTSHOW long text","type":"gotcha"}')" >/dev/null
+node --no-warnings -e "const {DatabaseSync}=require('node:sqlite');const d=new DatabaseSync(process.argv[1]);d.prepare(\"UPDATE memories SET session_id='sess-95' WHERE title='Live push needs owner go-ahead'\").run()" "$DB"
+CC="$(j95 '{"source":"compact"}' | $H SessionStart)"
+[[ "$CC" == *"Latest request from the user: nested repo prompt about readyz 6"* && "$CC" == *"Your task list (Release work), still open (1 done)"*"✱ Push 1cb3905a"* && "$CC" == *"Live push needs owner go-ahead"* && "$CC" != *BODYSHOULDNOTSHOW* && "$CC" != *"<wake"* ]] || fail "where you are after compaction: $CC"
+# A resumed/forked conversation gets a new id: after its compaction, hand back where the session it continues left off.
+S=sess-96; TR="$TP/transcript96.jsonl"
+echo '{"type":"user","timestamp":"2026-01-01T10:00:00Z","message":{"role":"user","content":"old history"}}' > "$TR"
+j95 '{"source":"resume"}' | $H SessionStart >/dev/null
+CF="$(j95 '{"source":"compact"}' | $H SessionStart)"
+[[ "$CF" == *"Where you left off"*"nested repo prompt about readyz 6"*"✱ Push 1cb3905a"* ]] || fail "forked session gets the earlier session's place: $CF"
 # Every release names its version in the README and the changelog.
 V="$(node -p "require('$ROOT/package.json').version")"
 [[ "$(node -p "require('$ROOT/.claude-plugin/plugin.json').version")" == "$V" ]] || fail "plugin.json version"

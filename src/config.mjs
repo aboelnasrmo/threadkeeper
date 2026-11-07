@@ -57,6 +57,11 @@ const DEFAULTS = {
   tagNotes: true,
   rereadGuard: true,
   rereadMinBytes: 3000,
+  // Very long conversations: once the context passes anchorTokens, add a short "where you are" reminder
+  // (task list, last checkpoint, recent requests, files) to every anchorEvery-th message. ~100-250 tokens each.
+  taskAnchor: true,
+  anchorTokens: 200000,
+  anchorEvery: 6,
 };
 
 /**

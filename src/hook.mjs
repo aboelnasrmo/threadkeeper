@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig, logError, HOME, VERSION, samePathCase } from './config.mjs';
 import { openDb, ensureSession, addEvent, projectFor, qualifies, pendingWork, now, relPath, EDIT_TOOLS, recordUsage, gitBranch } from './db.mjs';
 import { redact, clip, isSensitivePath } from './redact.mjs';
+import { promptText } from './prompt.mjs';
 
 const STALE_MS = 2 * 60 * 60 * 1000; // a session idle this long without SessionEnd counts as finished
 const LOCK_MS = 5 * 60 * 1000;       // a summarizer lock older than this is from a crashed run
@@ -55,8 +56,14 @@ export function describeTool(name, input = {}, project) {
     case 'Agent':
       return clip(redact(input.description ?? input.prompt ?? ''), 200);
     case 'TodoWrite':
-      return clip((input.todos || []).map((t) => `[${t.status}] ${t.content}`).join('; '), 300);
+      return clip((input.todos || []).map((t) => `[${t.status}] ${t.content}`).join('; '), 600);
+    case 'TaskCreate':
+      return clip(redact(`+ ${input.subject ?? input.description ?? ''}`), 200);
+    case 'TaskUpdate':
+      return clip(redact(`#${input.taskId ?? '?'} ${input.status ?? ''}${input.subject ? ' ' + input.subject : ''}`), 200);
     default:
+      // A Claude project thread's progress checklist is the session's own task list: keep all of it.
+      if (/update_progress_checklist$/.test(name) && typeof input.text === 'string') return clip(redact(input.text), 700);
       return clip(redact(JSON.stringify(input)), 200);
   }
 }
@@ -206,6 +213,32 @@ function prune(cfg) {
   d.prepare(`DELETE FROM injected_files WHERE session_id IN (SELECT id FROM sessions WHERE last_activity < ?)`).run(cutoff);
 }
 
+/**
+ * Very long conversations: every `anchorEvery` prompts once the context is past `anchorTokens`, remind Claude of
+ * the current task (task list, last checkpoint, recent requests, files). Skipped right after a compaction, which
+ * already brought back "where you are now".
+ */
+async function taskAnchor(d, sessionId, transcript, cfg) {
+  if (cfg.taskAnchor === false || !transcript) return null;
+  const every = Math.max(2, Number(cfg.anchorEvery) || 6);
+  const n = d.prepare(`SELECT count(*) n FROM events WHERE session_id = ? AND kind = 'prompt'`).get(sessionId).n;
+  if (n < 3) return null;
+  const marks = d.prepare(`SELECT path FROM injected_files WHERE session_id = ? AND path LIKE 'anchor:%'`).all(sessionId)
+    .map((r) => Number(r.path.slice(7))).filter(Number.isFinite);
+  const lastAt = marks.length ? Math.max(...marks) : 0;
+  if (lastAt && n - lastAt < every) return null;
+  const { currentContext } = await import('./sessiontokens.mjs');
+  const ctx = currentContext(transcript);
+  if (ctx < (Number(cfg.anchorTokens) || 200000)) return null;
+  const compacted = d.prepare('SELECT value FROM sync_state WHERE key = ?').get('compact:' + sessionId)?.value;
+  const prevPrompt = d.prepare(`SELECT ts FROM events WHERE session_id = ? AND kind = 'prompt' ORDER BY id DESC LIMIT 1 OFFSET 1`).get(sessionId)?.ts;
+  if (compacted && prevPrompt && compacted > prevPrompt) return null;
+  const { anchorContext } = await import('./context.mjs');
+  const text = anchorContext(d, sessionId, ctx);
+  if (text) d.prepare('INSERT OR IGNORE INTO injected_files(session_id, path) VALUES (?, ?)').run(sessionId, 'anchor:' + n);
+  return text || null;
+}
+
 let currentProject = null;
 /** One line shown to the user (not to Claude) so it's visible that memory loaded. */
 function statusLine(d, project, ctx, cfg) {
@@ -236,7 +269,13 @@ async function main() {
   try { input = raw ? JSON.parse(raw.replace(/^\uFEFF/, '')) : {}; } catch { return; }
   const sessionId = input.session_id;
   if (!sessionId) return;
-  const project = projectFor(input.cwd || process.cwd());
+  let project = projectFor(input.cwd || process.cwd());
+  // Claude moved into a folder inside the session's project (often a nested git repo such as ./repo): keep using
+  // the session's project, or recall would search an empty one.
+  try {
+    const known = openDb().prepare('SELECT project FROM sessions WHERE id = ?').get(sessionId)?.project;
+    if (known && known !== project && path.isAbsolute(known) && samePathCase(project).startsWith(samePathCase(known) + path.sep)) project = known;
+  } catch {}
   // Home folder and drive roots aren't projects: notes there would sync as a user name or "C:".
   if (isNotAProject(project)) return;
   currentProject = project;
@@ -345,8 +384,10 @@ async function main() {
       break;
     }
     case 'UserPromptSubmit': {
-      const prompt = redact(input.prompt ?? '');
-      const cmd = priv.privacyCommand(input.prompt);
+      // The user's own words: thread apps wrap each message in <wake>/<relay> envelopes.
+      const said = promptText(input.prompt ?? '');
+      const prompt = redact(said);
+      const cmd = priv.privacyCommand(said);
       if (cmd === 'off') {
         priv.makePrivate(sessionId, d);
         emit('UserPromptSubmit', 'threadkeeper: this session is now off the record. What was captured from it so far was deleted, and nothing more from it will be saved or synced. Memory still loads. Confirm this to the user in one line, then carry on with the rest of their message, if any. They can say "back on the record" to undo.');
@@ -366,7 +407,10 @@ async function main() {
         const { promptContext } = await import('./context.mjs');
         recall = promptContext(project, sessionId, prompt, cfg.promptRecallMax);
       }
-      emit('UserPromptSubmit', recall, hint);
+      let anchor = null;
+      try { anchor = prompt.trim() ? await taskAnchor(d, sessionId, input.transcript_path, cfg) : null; }
+      catch (e) { logError('task anchor', e); }
+      emit('UserPromptSubmit', [anchor, recall].filter(Boolean).join('\n\n') || null, hint);
       break;
     }
     case 'PostToolUse':

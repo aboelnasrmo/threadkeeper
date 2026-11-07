@@ -174,10 +174,16 @@ function importChanges(d, dir, me) {
     let offset = Number(getState(d, 'offset:' + name) || 0);
     if (size < offset) offset = 0; // file was replaced: re-read, applying is idempotent
     if (size === offset) continue;
-    const fd = fs.openSync(file, 'r');
+    // A cloud drive can refuse a read while it is still downloading the file (EAGAIN on Google Drive for Mac):
+    // skip that machine's file this round instead of stopping the whole sync (and the export below).
     const buf = Buffer.alloc(size - offset);
-    fs.readSync(fd, buf, 0, buf.length, offset);
-    fs.closeSync(fd);
+    try {
+      const fd = fs.openSync(file, 'r');
+      try { fs.readSync(fd, buf, 0, buf.length, offset); } finally { fs.closeSync(fd); }
+    } catch (e) {
+      if (!/EAGAIN|EDEADLK|EBUSY|ETIMEDOUT|-11\b/.test(String(e?.code || e?.message))) logError('sync read ' + name, e);
+      continue;
+    }
     const end = buf.lastIndexOf(0x0a); // only complete lines: the cloud may still be writing the tail
     if (end < 0) continue;
     d.exec('BEGIN IMMEDIATE');

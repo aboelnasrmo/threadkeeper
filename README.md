@@ -1,6 +1,6 @@
 # threadkeeper
 
-**Version 0.19.0** · [Changelog](CHANGELOG.md) · [![tests](https://github.com/aboelnasrmo/threadkeeper/actions/workflows/test.yml/badge.svg)](https://github.com/aboelnasrmo/threadkeeper/actions/workflows/test.yml) on macOS, Windows and Linux
+**Version 0.20.0** · [Changelog](CHANGELOG.md) · [![tests](https://github.com/aboelnasrmo/threadkeeper/actions/workflows/test.yml/badge.svg)](https://github.com/aboelnasrmo/threadkeeper/actions/workflows/test.yml) on macOS, Windows and Linux
 
 Personal, local-only memory for Claude Code. Built so Claude never loses its place: not after a long session, not after the context is compacted, not next week. No account, no hosted service, no extra dependencies. Inspired by [claude-mem](https://github.com/thedotmack/claude-mem); written from scratch to be small, local-only and token-lean.
 
@@ -50,7 +50,8 @@ flowchart LR
 | When | What happens |
 |---|---|
 | You work | Hooks log your prompts and Claude's tool calls (redacted) into `~/.threadkeeper/memory.db`. Never slows Claude: logging hooks run in the background. |
-| Context is about to be compacted | The session so far is summarized **before** compaction, then handed straight back after it: notes, your requests in this session, files changed, recent failures. |
+| Context is about to be compacted | The session so far is summarized **before** compaction, then handed straight back after it as a short "where you are now": your latest requests, your task list (to-dos or a thread's progress checklist), the latest checkpoint with its next step, files changed, recent failures, and earlier notes from the session by title only. A resumed or copied conversation gets the place of the session it continues. |
+| A conversation gets very long | Past 200k tokens of context (where the goal set many turns ago gets lost, and a 1M window may never compact), every 6th message carries a short reminder of the open steps, the last checkpoint, recent requests and files: about 100–250 tokens. Settings: `taskAnchor`, `anchorTokens`, `anchorEvery`. |
 | A session ends | `claude -p --model haiku` turns the log (plus Claude's own replies) into a summary and up to 6 notes: decisions, bug fixes, gotchas, discoveries, todos, each tied to the files it is about. Very long sessions also save partial summaries along the way. |
 | A new session starts | The **project brief** (one up-to-date page: what the project is, architecture, current state, decisions in force, traps, open threads, how to work in it), open todos, pinned notes, and the latest session notes are loaded. |
 | Notes pile up | Every dozen new notes, the summary model rewrites the brief, so thousands of notes stay usable in one page. |
@@ -142,7 +143,7 @@ Each machine keeps its own database and appends only to its own file in that fol
 
 threadkeeper's fixed cost per session is small: its tool definitions take about 700 tokens and the skill description about 50. It loads a small index, not everything: the project brief (one page), open todos, pinned notes, the newest session in full, and only titles with `#id`s for older ones. When a project has a brief, fewer recent sessions are loaded because the brief already condenses them. Anything else stays one `search` / `get` away, so nothing is lost.
 
-It also never says the same thing twice: a note loaded at session start is not repeated when Claude opens a related file or you mention its topic, and short replies ("ok", "go on") trigger no recall. A `--resume`d session gets only what changed since it was last active (its old conversation is already back), and after compaction only the brief, rules, todos and "this session so far" come back. The summary model gets a compressed log (file reads and searches counted, not listed; repeated commands merged), about a third smaller. `node src/cli.mjs usage` (and the viewer header) shows what threadkeeper actually cost over the last 7 days.
+It also never says the same thing twice: a note loaded at session start is not repeated when Claude opens a related file or you mention its topic, and short replies ("ok", "go on") trigger no recall. A `--resume`d session gets only what changed since it was last active (its old conversation is already back), and after compaction only the brief, rules, todos and a short "where you are now" come back (older notes from the same session by title only). The summary model gets a compressed log (file reads and searches counted, not listed; repeated commands merged), about a third smaller. `node src/cli.mjs usage` (and the viewer header) shows what threadkeeper actually cost over the last 7 days.
 
 **Re-read guard.** The biggest token cost in long sessions is Claude reading the same file again. When Claude asks to re-read a file (3 KB or more), or a large slice of one, that it already read in full this session, that hasn't changed since and hasn't been compacted away, threadkeeper stops that one read and tells Claude the content is still above. If Claude really needs it (a subagent, or after a summary), the very next attempt goes through. Partial reads and subagents are never stopped. Turn it off with `"rereadGuard": false`.
 
@@ -225,6 +226,7 @@ Wrap anything in `<private>...</private>` in a prompt to keep it out of memory, 
 | `rereadGuard` / `rereadMinBytes` | `true` / `3000` | stop re-reads of unchanged files still in context |
 | `noiseGuard` / `bigReadBytes` | `true` / `80000` | stop the first full read of lockfiles, generated/minified files, build output and files over this size |
 | `clearHint` / `clearHintTokens` | `true` / `80000` | suggest /clear (to you only) when a big session starts a different task |
+| `taskAnchor` / `anchorTokens` / `anchorEvery` | `true` / `200000` / `6` | in a very long conversation, remind Claude of the current task every few messages (~100–250 tokens) |
 | `searchGuard` | `true` | stop an identical Grep/Glob when nothing was edited or run since |
 | `learnFromUse` | `true` | stop auto-loading notes Claude keeps ignoring (they stay searchable) |
 

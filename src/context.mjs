@@ -1,37 +1,121 @@
 // Text injected into Claude's context: at session start, and when Claude opens a file it has history on.
+import fs from 'node:fs';
 import path from 'node:path';
 import { openDb, openTodos, relPath, filesOf, RANK, openConflicts } from './db.mjs';
 import { ignored } from './learn.mjs';
+import { promptText } from './prompt.mjs';
 
 const day = (iso) => iso.slice(0, 10);
 
-/** What this same session already did: used after compaction or resume so Claude doesn't lose its place. */
-function thisSession(d, sessionId) {
+const oneLine = (s, n) => short(String(s || '').replace(/\s+/g, ' ').trim(), n);
+
+/**
+ * The session's own task list, newest state: a project thread's progress checklist, TodoWrite, or TaskCreate/TaskUpdate.
+ * Returns { open: [...], done: n } or null.
+ */
+export function taskState(d, sessionId) {
+  const last = d.prepare(
+    `SELECT tool, detail FROM events WHERE session_id = ? AND kind = 'tool' AND detail NOT LIKE 'FAILED:%'
+       AND (tool = 'TodoWrite' OR tool LIKE '%update_progress_checklist') ORDER BY id DESC LIMIT 1`
+  ).get(sessionId);
+  const tasks = d.prepare(
+    `SELECT tool, detail FROM events WHERE session_id = ? AND tool IN ('TaskCreate','TaskUpdate') AND detail NOT LIKE 'FAILED:%' ORDER BY id`
+  ).all(sessionId);
+  if (tasks.length && (!last || d.prepare(
+    `SELECT max(id) a FROM events WHERE session_id = ? AND tool IN ('TaskCreate','TaskUpdate')`).get(sessionId).a >
+    d.prepare(`SELECT max(id) a FROM events WHERE session_id = ? AND (tool = 'TodoWrite' OR tool LIKE '%update_progress_checklist')`).get(sessionId).a)) {
+    // Task ids are handed out in order of creation (1, 2, 3…).
+    const list = [];
+    for (const t of tasks) {
+      if (t.tool === 'TaskCreate') list.push({ text: t.detail.replace(/^\+\s*/, ''), status: 'pending' });
+      else {
+        const m = /^#(\S+)\s+(\w+)?/.exec(t.detail);
+        const item = m && list[Number(m[1]) - 1];
+        if (item && m[2]) item.status = m[2];
+      }
+    }
+    const open = list.filter((t) => !/^(completed|deleted)$/.test(t.status)).map((t) => `[${t.status}] ${t.text}`);
+    return { open, done: list.length - open.length };
+  }
+  if (!last) return null;
+  if (last.tool === 'TodoWrite') {
+    const items = last.detail.split(/;\s(?=\[)/).map((x) => x.trim()).filter(Boolean);
+    const open = items.filter((x) => !/^\[completed\]/.test(x));
+    return { open, done: items.length - open.length };
+  }
+  // Checklist: a header line, then one step per line starting with ✓ (done), ✱ (in progress) or ○ (not started).
+  const lines = last.detail.split('\n').map((x) => x.trim()).filter(Boolean);
+  const steps = lines.filter((x) => /^[✓✱○]/.test(x));
+  const open = steps.filter((x) => !x.startsWith('✓'));
+  const head = lines.find((x) => !/^[✓✱○]/.test(x));
+  return { open, done: steps.length - open.length, head };
+}
+
+/** The user's latest requests in this session, newest first, without thread wrapper text. */
+function recentRequests(d, sessionId, n, chars) {
+  return d.prepare(`SELECT detail FROM events WHERE session_id = ? AND kind = 'prompt' ORDER BY id DESC LIMIT ?`).all(sessionId, n * 2)
+    .map((p) => oneLine(promptText(p.detail), chars)).filter((p) => p.length > 1).slice(0, n);
+}
+
+function recentEdits(d, sessionId, n) {
+  return [...new Set(d.prepare(
+    `SELECT substr(detail, 1, instr(detail || ':', ':') - 1) f FROM events
+     WHERE session_id = ? AND tool IN ('Edit','Write','MultiEdit','NotebookEdit') ORDER BY id DESC LIMIT 60`
+  ).all(sessionId).map((r) => r.f.replace(/ \(\d+ chars\)$/, '')))].slice(0, n);
+}
+
+/**
+ * Where this same session is now: used after a compaction so Claude picks up exactly where it was.
+ * Short on purpose: the latest checkpoint (done / still open), the task list, the latest requests and files.
+ * Older notes from the session are listed by title only; their full text is one `get` away.
+ */
+export function thisSession(d, sessionId, { previous = false } = {}) {
   const s = d.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
   if (!s) return '';
-  const mems = d.prepare(`SELECT * FROM memories WHERE session_id = ? ORDER BY id`).all(sessionId);
-  const prompts = d.prepare(
-    `SELECT detail FROM events WHERE session_id = ? AND kind = 'prompt' ORDER BY id DESC LIMIT 12`
-  ).all(sessionId).reverse();
-  const edited = d.prepare(
-    `SELECT DISTINCT substr(detail, 1, instr(detail || ':', ':') - 1) f FROM events
-     WHERE session_id = ? AND tool IN ('Edit','Write','MultiEdit','NotebookEdit') ORDER BY id DESC LIMIT 25`
-  ).all(sessionId).map((r) => r.f.replace(/ \(\d+ chars\)$/, ''));
+  const mems = d.prepare(`SELECT * FROM memories WHERE session_id = ? AND superseded_at IS NULL ORDER BY id DESC`).all(sessionId);
+  const latest = mems.find((m) => m.type === 'session');
+  // Open todos are listed in their own section of the same context, so they are not repeated here.
+  const others = mems.filter((m) => m.type !== 'session' && m.type !== 'todo').slice(0, 12);
+  const tasks = taskState(d, sessionId);
+  const prompts = recentRequests(d, sessionId, 5, 300);
+  const edited = recentEdits(d, sessionId, 12);
   const failed = d.prepare(
-    `SELECT tool, detail FROM events WHERE session_id = ? AND detail LIKE 'FAILED:%' ORDER BY id DESC LIMIT 3`
+    `SELECT tool, detail FROM events WHERE session_id = ? AND detail LIKE 'FAILED:%' ORDER BY id DESC LIMIT 2`
   ).all(sessionId);
-  if (!mems.length && !prompts.length && !edited.length) return '';
-  const out = ['## This session so far (recorded by threadkeeper; survives compaction)'];
-  if (mems.length) {
-    out.push('Notes saved earlier in this session:');
-    for (const m of mems) out.push(m.type === 'session' ? `- ${m.body}` : `- [${m.type}${m.status === 'done' ? ', done' : ''}] ${m.title}: ${m.body} (#${m.id})`);
-  }
+  if (!mems.length && !prompts.length && !edited.length && !tasks) return '';
+  const out = [previous
+    ? `## Where you left off (threadkeeper: this conversation continues the session of ${s.last_activity.slice(0, 16).replace('T', ' ')} UTC)`
+    : '## Where you are now in this session (recorded by threadkeeper; survives compaction)'];
   if (prompts.length) {
-    out.push('The user\'s requests in this session, oldest first:');
-    for (const p of prompts) out.push(`- ${p.detail.replace(/\s+/g, ' ').slice(0, 400)}`);
+    out.push(`Latest request from the user: ${prompts[0]}`);
+    if (prompts.length > 1) out.push('Before that, newest first:\n' + prompts.slice(1).map((p) => `- ${p}`).join('\n'));
   }
-  if (edited.length) out.push(`Files changed in this session: ${[...new Set(edited)].join(', ')}`);
-  if (failed.length) out.push(`Recent failures: ${failed.map((f) => `${f.tool} ${f.detail.slice(8, 160)}`).join(' | ')}`);
+  if (tasks?.open.length) out.push(`Your task list${tasks.head ? ` (${oneLine(tasks.head, 80)})` : ''}, still open${tasks.done ? ` (${tasks.done} done)` : ''}:\n` +
+    tasks.open.slice(0, 10).map((t) => `- ${oneLine(t, 160)}`).join('\n'));
+  if (latest) out.push(`Latest checkpoint (${latest.created_at.slice(11, 16)} UTC): ${oneLine(latest.body, 700)}`);
+  if (edited.length) out.push(`Files changed recently: ${edited.join(', ')}`);
+  if (failed.length) out.push(`Recent failures: ${failed.map((f) => `${f.tool} ${oneLine(f.detail.slice(8), 150)}`).join(' | ')}`);
+  if (others.length) out.push(`Earlier notes from this session, newest first (may be out of date; \`get\` #id for detail): ` +
+    others.map((m) => `#${m.id} ${oneLine(m.title, 70)}`).join('; '));
+  return out.join('\n');
+}
+
+/**
+ * A short reminder of the current task, added to the user's message in a very long conversation (deep in a big
+ * context the goal set many turns ago gets lost, and with a 1M window a compaction may never come).
+ * At most once every `anchorEvery` prompts, only above `anchorTokens` of context. ~100-250 tokens.
+ */
+export function anchorContext(d, sessionId, ctxTokens) {
+  const tasks = taskState(d, sessionId);
+  const latest = d.prepare(`SELECT * FROM memories WHERE session_id = ? AND type = 'session' AND superseded_at IS NULL ORDER BY id DESC LIMIT 1`).get(sessionId);
+  const prompts = recentRequests(d, sessionId, 3, 200);
+  const edited = recentEdits(d, sessionId, 8);
+  if (!tasks?.open.length && !latest && prompts.length < 2) return '';
+  const out = [`threadkeeper: this conversation is long (~${Math.round(ctxTokens / 1000)}k tokens). Where you are, so the current task stays in view:`];
+  if (tasks?.open.length) out.push(`- Open steps: ${tasks.open.slice(0, 6).map((t) => oneLine(t, 100)).join(' | ')}`);
+  if (latest) out.push(`- Last checkpoint (${latest.created_at.slice(11, 16)} UTC): ${oneLine(latest.body, 350)}`);
+  if (prompts.length > 1) out.push(`- Earlier requests, newest first: ${prompts.slice(1).map((p) => `"${p}"`).join(' · ')}`);
+  if (edited.length) out.push(`- Files changed lately: ${edited.join(', ')}`);
   return out.join('\n');
 }
 
@@ -76,6 +160,20 @@ function resumeContext(d, project, sessionId, notices) {
   return out.join('\n');
 }
 
+/** The transcript starts well before threadkeeper first saw this session: a resumed or forked copy of an older one. */
+function carriesOlderHistory(d, sessionId) {
+  const s = d.prepare('SELECT started_at, transcript_path FROM sessions WHERE id = ?').get(sessionId);
+  if (!s?.transcript_path) return false;
+  try {
+    const fd = fs.openSync(s.transcript_path, 'r');
+    const buf = Buffer.alloc(65536);
+    const len = fs.readSync(fd, buf, 0, buf.length, 0);
+    fs.closeSync(fd);
+    const m = /"timestamp"\s*:\s*"([^"]+)"/.exec(buf.subarray(0, len).toString('utf8'));
+    return !!m && Date.parse(s.started_at) - Date.parse(m[1]) > 10 * 60000;
+  } catch { return false; }
+}
+
 export function buildContext(project, cfg, { sessionId, source, notices = [] } = {}) {
   const d = openDb();
   const learn = cfg.learnFromUse !== false;
@@ -87,7 +185,17 @@ export function buildContext(project, cfg, { sessionId, source, notices = [] } =
     d.prepare(`UPDATE OR IGNORE injected_files SET path = 'seen:' || substr(path, 5) WHERE session_id = ? AND path LIKE 'mem:%'`).run(sessionId);
     d.prepare(`DELETE FROM injected_files WHERE session_id = ? AND path LIKE 'mem:%'`).run(sessionId);
   }
-  const current = sessionId && compact ? thisSession(d, sessionId) : '';
+  let current = sessionId && compact ? thisSession(d, sessionId) : '';
+  if (compact && sessionId && carriesOlderHistory(d, sessionId)) {
+    // A resumed or forked conversation gets a new session id and carries the old one's history: threadkeeper has
+    // (almost) nothing under the new id, so hand back where the session it continues left off.
+    const prev = d.prepare(
+      `SELECT id FROM sessions WHERE project = ? AND id != ? AND last_activity > ? AND (prompts > 0 OR tool_calls > 0)
+       ORDER BY last_activity DESC LIMIT 1`
+    ).get(project, sessionId, new Date(Date.now() - 2 * 86400000).toISOString());
+    const before = prev ? thisSession(d, prev.id, { previous: true }) : '';
+    if (before) current = [before, current.replace(/^## Where you are now[^\n]*\n?/, '### Since then\n')].filter((x) => x.trim() && x.trim() !== '### Since then').join('\n');
+  }
   // Todos untouched for a month are usually done or dropped: list them by count only (the `todos` tool shows them).
   const allTodos = openTodos(project, 40);
   const fresh = (t) => t.pinned || Date.now() - Date.parse(t.updated_at || t.created_at) < 30 * 86400000;
@@ -242,12 +350,16 @@ export function promptContext(project, sessionId, prompt, max = 3) {
   const terms = promptTerms(prompt);
   if (!terms.length) return '';
   const d = openDb();
+  // Notes this same session wrote are still in context, except in a long session: ones written before its last
+  // compaction, or hours ago, may be gone from view and can be recalled like any other note.
+  const compacted = d.prepare('SELECT value FROM sync_state WHERE key = ?').get('compact:' + sessionId)?.value || '';
+  const hoursAgo = new Date(Date.now() - 3 * 3600000).toISOString();
   const rows = d.prepare(
     `SELECT m.* FROM memories_fts JOIN memories m ON m.id = memories_fts.rowid
-     WHERE memories_fts MATCH ? AND m.project = ? AND (m.session_id IS NULL OR m.session_id != ?)
-       AND (m.status IS NULL OR m.status = 'open') AND m.superseded_at IS NULL AND m.type != 'brief'
+     WHERE memories_fts MATCH ? AND m.project = ? AND (m.session_id IS NULL OR m.session_id != ? OR m.created_at < ? OR m.created_at < ?)
+       AND (m.status IS NULL OR m.status = 'open') AND m.superseded_at IS NULL AND m.type NOT IN ('brief','session')
      ORDER BY ${RANK} LIMIT 12`
-  ).all(terms.map((t) => `"${t}"*`).join(' OR '), project, sessionId);
+  ).all(terms.map((t) => `"${t}"*`).join(' OR '), project, sessionId, compacted, hoursAgo);
   // Precision over recall: a weak match costs tokens on every prompt and teaches Claude to ignore these notes.
   // A note must share a good part of the request's words, and at least one of them must be in its title.
   const need = terms.length <= 2 ? terms.length : Math.max(2, Math.ceil(terms.length * 0.4));
